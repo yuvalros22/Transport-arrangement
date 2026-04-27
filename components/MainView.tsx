@@ -5,7 +5,10 @@ import { MapView } from './MapView'
 import { ReviewScreen } from './ReviewScreen'
 import { CustomerManager } from './CustomerManager'
 import { PickupsManager } from './PickupsManager'
+import { DriversManager } from './DriversManager'
 import { getAllPickupRecords } from '@/lib/pickupDb'
+import { getAllDrivers } from '@/lib/driverDb'
+import type { Driver } from '@/types'
 import { getSelectedPickupIdsArray, getRoutesResult, setRoutesResult } from '@/lib/sessionStore'
 
 // ─── Columns (board) view ─────────────────────────────────────────────────────
@@ -13,6 +16,7 @@ function ColumnsView({
   routes,
   onDragStart, onDragOver, onDrop, onDragEnd,
   dragSrc, dragOverInfo,
+  allDrivers, onAssignDriver, onToggleNightRoute
 }: {
   routes: Route[]
   dragSrc: DragSrc | null
@@ -21,6 +25,9 @@ function ColumnsView({
   onDragOver: (e: React.DragEvent, type: 'stop' | 'pickup', routeId: number, index: number) => void
   onDrop: (type: 'stop' | 'pickup', toRouteId: number, toIndex: number) => void
   onDragEnd: () => void
+  allDrivers: Driver[]
+  onAssignDriver: (routeId: number, driverId: string) => void
+  onToggleNightRoute: (routeId: number, isNight: boolean) => void
 }) {
   const hasWarn = (s: RouteStop) =>
     s.notes && (s.notes.includes('חובה') || s.notes.includes('מזומן') || s.notes.includes('⚠'))
@@ -67,12 +74,37 @@ function ColumnsView({
                 <div className="h-full rounded-full transition-all"
                   style={{ width: `${pct}%`, background: route.color }} />
               </div>
-              <div className="flex gap-2 text-[10px] font-semibold">
+              <div className="flex gap-2 text-[10px] font-semibold mb-2">
                 <span style={{ color: route.color }}>🛒 {route.total_carts}/18</span>
                 <span className="text-slate-500">·</span>
                 <span className="text-slate-400">{route.stops.length} עצירות</span>
                 <span className="text-slate-500">·</span>
                 <span className="text-slate-500">~{route.distance_km}ק"מ</span>
+              </div>
+              
+              {/* Driver & Night Route Controls */}
+              <div className="space-y-1.5 p-2 rounded-xl bg-black/20 border border-white/5">
+                <div className="flex items-center justify-between gap-2">
+                  <select 
+                    className="input text-[11px] py-1 bg-transparent border-slate-700/50 w-full text-slate-200"
+                    value={route.driver?.id || ''}
+                    onChange={e => onAssignDriver(route.id, e.target.value)}
+                  >
+                    <option value="">👨‍✈️ שיבוץ נהג...</option>
+                    {allDrivers.map(d => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer w-max pl-1">
+                  <input 
+                    type="checkbox" 
+                    className="w-3.5 h-3.5 rounded border-slate-600 bg-transparent text-purple-500 focus:ring-purple-500" 
+                    checked={!!route.isNightRoute}
+                    onChange={e => onToggleNightRoute(route.id, e.target.checked)} 
+                  />
+                  <span className="text-[10px] font-bold text-slate-300">🌙 קו לילה</span>
+                </label>
               </div>
             </div>
 
@@ -520,6 +552,9 @@ function RouteCard({
   onDeleteStop: (routeId: number, stopIdx: number) => void
   onDeletePickup: (routeId: number, pickupIdx: number) => void
   dragOverInfo: { type: 'stop' | 'pickup'; routeId: number; index: number } | null
+  allDrivers: Driver[]
+  onAssignDriver: (routeId: number, driverId: string) => void
+  onToggleNightRoute: (routeId: number, isNight: boolean) => void
 }) {
   const pct = Math.min(100, (route.total_carts / 18) * 100)
   const hasWarn = (s: RouteStop) =>
@@ -546,7 +581,7 @@ function RouteCard({
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 cursor-pointer" onClick={onToggle}>
         <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: route.color }} />
-        <span className="font-bold text-sm flex-1">{route.name}</span>
+        <span className="font-bold text-sm flex-1">{route.name} {route.isNightRoute && '🌙'}</span>
         <div className="flex gap-1.5 flex-wrap justify-end">
           {(() => {
             const pCarts = route.pickups?.reduce((a, p) => a + (p.carts !== undefined && p.carts !== '' ? Number(p.carts) : 1), 0) || 0
@@ -748,19 +783,21 @@ export function MainView() {
   const [reviewRows, setReviewRows] = useState<any[] | null>(null)  // parsed Excel rows
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [numTrucks, setNumTrucks] = useState(6)
+  const [numTrucks, setNumTrucks] = useState(7)
   const [openRoute, setOpenRoute] = useState<number | null>(null)
   const [activeRoute, setActiveRoute] = useState<number | null>(null)
   const [exporting, setExporting] = useState(false)
   const [viewMode, setViewMode] = useState<'map' | 'columns'>('map')
   const [showCustomers, setShowCustomers] = useState(false)
   const [showPickups, setShowPickups] = useState(false)
+  const [showDrivers, setShowDrivers] = useState(false)
   const [isInitialLoadDone, setIsInitialLoadDone] = useState(false)
   const [savedResultToRestore, setSavedResultToRestore] = useState<RoutesResult | null>(null)
+  const [drivers, setDrivers] = useState<Driver[]>([])
 
   // ── Merge dialog state ─────────────────────────────────────────────────────────────
   const [pendingStops, setPendingStops] = useState<any[] | null>(null)
-  const [pendingTrucks, setPendingTrucks] = useState(6)
+  const [pendingTrucks, setPendingTrucks] = useState(7)
   const [showMergeDialog, setShowMergeDialog] = useState(false)
   const [mergeWarnings, setMergeWarnings] = useState<string[]>([])
   const [mergeUnassigned, setMergeUnassigned] = useState<any[]>([])
@@ -783,6 +820,8 @@ export function MainView() {
         console.error("Failed to load saved routes:", e)
         setIsInitialLoadDone(true)
     })
+
+    getAllDrivers().then(setDrivers).catch(e => console.error(e))
   }, [])
 
   // Save to Supabase whenever it changes
@@ -1060,6 +1099,11 @@ export function MainView() {
 
   const handleExport = async () => {
     if (!result) return
+    const missingDriver = result.routes.some(r => !r.driver)
+    if (missingDriver) {
+      setError('שגיאה: לא ניתן לייצא עד שלכל הקווים שובץ נהג.')
+      return
+    }
     setExporting(true)
     try {
       const r = await fetch('/api/export', {
@@ -1162,6 +1206,20 @@ export function MainView() {
             ↩ איסופים
           </button>
 
+          {/* Drivers button */}
+          <button
+            onClick={() => setShowDrivers(true)}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm font-black rounded-xl border-2 transition-all"
+            style={{
+              background: 'linear-gradient(135deg, #3b82f618, #3b82f608)',
+              color: '#60a5fa',
+              borderColor: '#3b82f650',
+              boxShadow: '0 0 12px rgba(59,130,246,.15)',
+            }}
+          >
+            👨‍✈️ נהגים
+          </button>
+
           {/* View toggle — only shown when there are results */}
           {result && (
             <div className="flex items-center bg-panel border border-border rounded-xl overflow-hidden">
@@ -1219,6 +1277,16 @@ export function MainView() {
               onDragOver={handleDragOver}
               onDrop={handleDrop}
               onDragEnd={handleDragEnd}
+              allDrivers={drivers}
+              onAssignDriver={(routeId, driverId) => {
+                const drv = drivers.find(d => d.id === driverId)
+                const updated = result.routes.map(r => r.id === routeId ? { ...r, driver: drv } : r)
+                setResult({ ...result, routes: updated })
+              }}
+              onToggleNightRoute={(routeId, isNight) => {
+                const updated = result.routes.map(r => r.id === routeId ? { ...r, isNightRoute: isNight } : r)
+                setResult({ ...result, routes: updated })
+              }}
             />
           </div>
         )}
@@ -1378,6 +1446,16 @@ export function MainView() {
                         onDragEnd={handleDragEnd}
                         onDeleteStop={handleDeleteStop}
                         onDeletePickup={handleDeletePickup}
+                        allDrivers={drivers}
+                        onAssignDriver={(routeId, driverId) => {
+                          const drv = drivers.find(d => d.id === driverId)
+                          const updated = result.routes.map(r => r.id === routeId ? { ...r, driver: drv } : r)
+                          setResult({ ...result, routes: updated })
+                        }}
+                        onToggleNightRoute={(routeId, isNight) => {
+                          const updated = result.routes.map(r => r.id === routeId ? { ...r, isNightRoute: isNight } : r)
+                          setResult({ ...result, routes: updated })
+                        }}
                       />
                     ))}
                   </>
@@ -1435,6 +1513,19 @@ export function MainView() {
           </>
         )}
       </div>
+
+      {/* Modals */}
+      {showCustomers && <CustomerManager onClose={() => setShowCustomers(false)} />}
+      {showPickups && <PickupsManager onClose={() => setShowPickups(false)} />}
+      {showDrivers && (
+        <DriversManager 
+          onClose={() => {
+            setShowDrivers(false)
+            // Reload drivers just in case changes were made
+            getAllDrivers().then(setDrivers).catch(e => console.error(e))
+          }} 
+        />
+      )}
     </div>
   )
 }

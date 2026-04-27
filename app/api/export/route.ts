@@ -80,7 +80,21 @@ export async function POST(req: NextRequest) {
 
   // ── One sheet per route ────────────────────────────────────────────────────
   for (const route of routes) {
-    const ws = wb.addWorksheet(route.name, { views: [{ rightToLeft: true }] })
+    let sheetName = `${route.name}${route.isNightRoute ? ' (לילה)' : ''} - ${route.driver?.name || 'ללא נהג'}`
+    // Excel sheet name max 31 chars, strip bad chars
+    sheetName = sheetName.replace(/[\*\?\/\\\[\]]/g, '').substring(0, 31)
+
+    const ws = wb.addWorksheet(sheetName, { 
+      views: [{ rightToLeft: true }],
+      pageSetup: {
+        orientation: 'landscape',
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        margins: { left: 0.2, right: 0.2, top: 0.4, bottom: 0.4, header: 0.1, footer: 0.1 },
+        printArea: 'A1:J200' 
+      }
+    })
     ws.columns = [
       { key: 'order',   width: 5  },
       { key: 'name',    width: 28 },
@@ -95,7 +109,10 @@ export async function POST(req: NextRequest) {
     ]
 
     // Route title
-    const rTitle = ws.addRow([`${route.name}  ·  ${date}`, '', '', '', '', '', '', '', '', ''])
+    const nightText = route.isNightRoute ? `  ·  🌙 קו לילה` : ''
+    const driverText = route.driver ? `נהג: ${route.driver.name} (משאית: ${route.driver.truck_number})` : 'ללא נהג'
+    const titleText = `${route.name}${nightText}  ·  ${driverText}  ·  ${date}`
+    const rTitle = ws.addRow([titleText, '', '', '', '', '', '', '', '', ''])
     rTitle.getCell(1).font = { bold: true, size: 14 }
     rTitle.height = 24
     ws.mergeCells(`A1:J1`)
@@ -172,6 +189,79 @@ export async function POST(req: NextRequest) {
         ])
         ws.mergeCells(`D${row.number}:G${row.number}`)
         row.getCell(8).font = { bold: true }
+      })
+    }
+
+    // ── Driver Fillable Form Sheet ─────────────────────────────────────────────
+    let formSheetName = `טופס - ${sheetName}`
+    formSheetName = formSheetName.substring(0, 31)
+
+    const formWs = wb.addWorksheet(formSheetName, { 
+      views: [{ rightToLeft: true }],
+      pageSetup: {
+        orientation: 'portrait',
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        margins: { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.1, footer: 0.1 },
+        printArea: 'A1:H200' 
+      }
+    })
+
+    formWs.columns = [
+      { key: 'order',   width: 5  },
+      { key: 'name',    width: 32 },
+      { key: 'trays',   width: 12 },
+      { key: 'carriers',width: 12 },
+      { key: 'boxes',   width: 12 },
+      { key: 'packages_h',width: 16},
+      { key: 'carts',   width: 12 },
+      { key: 'sign',    width: 25 },
+    ]
+
+    const fTitle = formWs.addRow([`טופס איסוף נהג  ·  ${titleText}`, '', '', '', '', '', '', ''])
+    fTitle.getCell(1).font = { bold: true, size: 14 }
+    fTitle.height = 24
+    formWs.mergeCells(`A1:H1`)
+    formWs.addRow([])
+
+    const fHead = formWs.addRow(['#', 'לקוח', 'מגשים', 'מנשאים', 'ארגזים', 'אריזות ח.ריבוי', 'עגלות', 'חתימת לקוח/הערות'])
+    fHead.eachCell(c => {
+      c.font = { bold: true }
+      c.border = { bottom: { style: 'thin', color: { argb: 'FF1E2D45' } } }
+    })
+
+    route.stops.forEach((s) => {
+      const row = formWs.addRow([
+        s.cart_number || '',
+        s.name,
+        '', '', '', '', '', '' // empty for driver to fill
+      ])
+      // add standard row height for writing
+      row.height = 30
+      row.eachCell(c => {
+        c.border = { bottom: { style: 'dotted', color: { argb: 'FFCCCCCC' } } }
+        c.alignment = { vertical: 'middle' }
+      })
+    })
+
+    if (route.pickups && route.pickups.length > 0) {
+      formWs.addRow([])
+      const fpTitle = formWs.addRow(['איסופים מיוחדים', '', '', '', '', '', '', ''])
+      fpTitle.getCell(1).font = { bold: true, size: 12 }
+      formWs.mergeCells(`A${fpTitle.number}:H${fpTitle.number}`)
+
+      route.pickups.forEach((p) => {
+        const row = formWs.addRow([
+          '↩',
+          p.name,
+          '', '', '', '', '', ''
+        ])
+        row.height = 30
+        row.eachCell(c => {
+          c.border = { bottom: { style: 'dotted', color: { argb: 'FFCCCCCC' } } }
+          c.alignment = { vertical: 'middle' }
+        })
       })
     }
   }

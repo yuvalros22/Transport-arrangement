@@ -79,10 +79,21 @@ export function parseExcel(buffer: ArrayBuffer): ParsedRow[] {
     codeToName.set(code, name.trim().toLowerCase())
 
     // If the same customer appears more than once, give each row a unique code
-    // so that per-row address overrides don't bleed across rows
-    const seen = codeCount.get(code) ?? 0
-    codeCount.set(code, seen + 1)
-    if (seen > 0) code = `${code}__${seen}`
+    // Use the cart number to uniquely identify different carts for the same customer.
+    // If cart number is missing or repeated, use a counter.
+    const cartNumVal = colCartNum !== undefined ? clean(row[colCartNum]) : ''
+    const baseCodeKey = cartNumVal ? `${code}__cart_${cartNumVal}` : code
+    
+    const seen = codeCount.get(baseCodeKey) ?? 0
+    codeCount.set(baseCodeKey, seen + 1)
+    
+    if (cartNumVal) {
+      // If there's a cart number, code is always baseCodeKey (plus counter if duplicate carts)
+      code = seen === 0 ? baseCodeKey : `${baseCodeKey}__${seen}`
+    } else {
+      // If no cart number, fallback to generic counter
+      if (seen > 0) code = `${code}__${seen}`
+    }
 
     const cartsRaw = col.carts !== undefined ? row[col.carts] : ''
     let cartsNum = 0

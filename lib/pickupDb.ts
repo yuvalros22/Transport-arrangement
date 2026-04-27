@@ -13,6 +13,7 @@ export async function getAllPickupRecords(): Promise<PickupRecord[]> {
     return pData.map(p => ({
         ...p,
         carts: p.carts || 0,
+        is_urgent: p.is_urgent || false,
         completions: cData.filter(c => c.pickup_id === p.id).map(c => ({
             date: c.date,
             done: c.done,
@@ -30,6 +31,7 @@ export async function getPickupRecord(id: string): Promise<PickupRecord | null> 
     return {
         ...p,
         carts: p.carts || 0,
+        is_urgent: p.is_urgent || false,
         completions: (cData || []).map(c => ({ date: c.date, done: c.done, note: c.note || undefined }))
     }
 }
@@ -45,6 +47,7 @@ export async function upsertPickupRecord(record: PickupRecord) {
         phone: record.phone || null,
         notes: record.notes || null,
         carts: record.carts || null,
+        is_urgent: record.is_urgent || false,
     }
 
     const { error } = await supabase.from('pickups').upsert(payload)
@@ -54,6 +57,7 @@ export async function upsertPickupRecord(record: PickupRecord) {
             delete (payload as any).carts
             delete (payload as any).phone
             delete (payload as any).notes
+            delete (payload as any).is_urgent
             await supabase.from('pickups').upsert(payload)
         } catch (e) {
             console.error('Exception in pickup fallback:', e)
@@ -91,6 +95,10 @@ export async function markPickupDone(id: string, done: boolean, note?: string) {
 export function getTodayCompletion(record: PickupRecord): PickupCompletion | null {
     const today = todayStr()
     return record.completions.find(c => c.date === today) ?? null
+}
+
+export async function unmarkPickupDone(id: string, date: string) {
+    await supabase.from('pickup_completions').delete().eq('pickup_id', id).eq('date', date)
 }
 
 export function getRecentCompletions(record: PickupRecord, limit = 10): PickupCompletion[] {
