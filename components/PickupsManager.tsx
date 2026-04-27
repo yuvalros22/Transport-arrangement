@@ -4,7 +4,7 @@ import type { PickupRecord, Customer, CustomerAddress } from '@/types'
 import {
     getAllPickupRecords, upsertPickupRecord, deletePickupRecord,
     newPickupRecordId, markPickupDone, getTodayCompletion,
-    getRecentCompletions,
+    getRecentCompletions, unmarkPickupDone,
 } from '@/lib/pickupDb'
 import { getSelectedPickupIds, setPickupSelected } from '@/lib/sessionStore'
 import { getAllCustomers } from '@/lib/customerDb'
@@ -24,6 +24,7 @@ function emptyRecord(): PickupRecord {
         lat: null,
         lng: null,
         what_to_collect: '',
+        is_urgent: false,
         phone: '',
         notes: '',
         carts: '',
@@ -99,6 +100,9 @@ function PickupCard({
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                         <span className="font-bold text-sm text-slate-200 truncate">{record.name || '—'}</span>
+                        {record.is_urgent && (
+                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-red-500 text-white shrink-0 shadow-lg shadow-red-500/20">🚨 דחוף!</span>
+                        )}
                         {!hasAddress && (
                             <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 shrink-0">חסרה כתובת</span>
                         )}
@@ -353,7 +357,14 @@ function PickupForm({
                     <div className="rounded-xl border border-border p-3 space-y-3" style={{ background: '#ffffff04' }}>
                         <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">פרטי האיסוף</div>
                         <div>
-                            <label className="block text-[11px] text-slate-500 mb-1">מה לאסוף *</label>
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="block text-[11px] text-slate-500 font-bold">מה לאסוף *</label>
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" className="w-3.5 h-3.5 rounded border-slate-600 bg-white/5 text-red-500 focus:ring-red-500" 
+                                        checked={!!form.is_urgent} onChange={e => set('is_urgent', e.target.checked)} />
+                                    <span className="text-[11px] font-bold text-red-400">🚨 איסוף דחוף</span>
+                                </label>
+                            </div>
                             <textarea className="input text-sm resize-none" rows={2}
                                 value={form.what_to_collect}
                                 onChange={e => set('what_to_collect', e.target.value)}
@@ -414,8 +425,9 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
     const [records, setRecords] = useState<PickupRecord[]>([])
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
     const [editing, setEditing] = useState<PickupRecord | null>(null)
-    // todayDone: map of id → true/false/null
     const [todayStatus, setTodayStatus] = useState<Record<string, boolean | null>>({})
+    const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending')
+    const [historySearch, setHistorySearch] = useState('')
 
     const reload = useCallback(async () => {
         const recs = await getAllPickupRecords()
@@ -482,7 +494,26 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
         }
     }
 
-    const selectedCount = records.filter(r => selectedIds.has(r.id) && r.lat !== null).length
+    const handleUndoPickup = async (id: string, date: string) => {
+        await unmarkPickupDone(id, date)
+        if (date === todayStr()) {
+            setTodayStatus(prev => ({ ...prev, [id]: null }))
+        }
+        await reload()
+    }
+
+    const pendingRecords = records.filter(r => !r.completions.some(c => c.done))
+    const historyItems = records.flatMap(r =>
+        r.completions.filter(c => c.done).map(c => ({ record: r, date: c.date, note: c.note }))
+    ).sort((a, b) => b.date.localeCompare(a.date))
+
+    const filteredHistory = historyItems.filter(item =>
+        item.record.name.toLowerCase().includes(historySearch.toLowerCase()) ||
+        (item.record.what_to_collect || '').toLowerCase().includes(historySearch.toLowerCase()) ||
+        item.date.includes(historySearch)
+    )
+
+    const selectedCount = pendingRecords.filter(r => selectedIds.has(r.id) && r.lat !== null).length
     const doneToday = Object.values(todayStatus).filter(v => v === true).length
     const notDoneToday = Object.values(todayStatus).filter(v => v === false).length
 
@@ -505,67 +536,139 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
                     <div className="flex-1">
                         <div className="font-black text-sm text-slate-200">מאגר איסופים</div>
                         <div className="text-[11px] text-slate-500">
-                            {records.length} איסופים · {selectedCount} לסידור היום
-                            {doneToday > 0 && ` · ✓ ${doneToday} בוצעו`}
-                            {notDoneToday > 0 && ` · ✗ ${notDoneToday} לא בוצעו`}
+                            {pendingRecords.length} ממתינים · {historyItems.length} בהיסטוריה
+                            {doneToday > 0 && ` · ✓ ${doneToday} סומנו כבוצעו היום`}
                         </div>
                     </div>
                     <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-xl leading-none">✕</button>
                 </div>
 
-                {/* Legend */}
-                <div className="px-4 py-2 border-b border-border bg-purple-500/5 shrink-0">
-                    <div className="flex gap-4 text-[10px] text-slate-600" dir="rtl">
-                        <span>☑ = לסידור קווים היום</span>
-                        <span className="text-green-500">✓ = בוצע</span>
-                        <span className="text-red-500">✗ = לא בוצע</span>
-                        <span>● = היסטוריה (5 אחרונים)</span>
-                    </div>
-                </div>
-
-                {/* List */}
-                <div className="flex-1 overflow-y-auto p-3 space-y-2" dir="rtl">
-                    {records.length === 0 && (
-                        <div className="flex flex-col items-center justify-center h-full text-slate-700 gap-3">
-                            <div className="text-5xl">↩</div>
-                            <div className="text-sm font-bold text-slate-500">אין איסופים במאגר</div>
-                            <div className="text-xs text-slate-600">לחץ על "+ הוסף איסוף" להתחיל</div>
-                        </div>
-                    )}
-
-                    {records.map(r => (
-                        <PickupCard
-                            key={r.id}
-                            record={r}
-                            selected={selectedIds.has(r.id)}
-                            todayDone={todayStatus[r.id] ?? null}
-                            onToggleSelected={() => handleToggleSelected(r.id)}
-                            onToggleDone={done => handleToggleDone(r.id, done)}
-                            onEdit={() => setEditing({ ...r })}
-                            onDelete={() => handleDelete(r.id)}
-                        />
-                    ))}
-                </div>
-
-                {/* Footer */}
-                <div className="p-3 border-t border-border space-y-2 shrink-0">
-                    {selectedCount > 0 && (
-                        <div className="text-[11px] text-center text-purple-300 py-1 rounded-xl"
-                            style={{ background: '#8b5cf610' }}>
-                            ✅ {selectedCount} איסופים ישובצו אוטומטית לקו הקרוב
-                        </div>
-                    )}
+                {/* Tabs */}
+                <div className="flex border-b border-border shrink-0" dir="rtl">
                     <button
-                        className="w-full text-sm font-bold py-2 rounded-xl border-2 transition-all"
-                        style={{
-                            background: 'linear-gradient(135deg,#8b5cf618,#8b5cf608)',
-                            color: '#a78bfa', borderColor: '#8b5cf650',
-                        }}
-                        onClick={() => setEditing(emptyRecord())}
+                        className={`flex-1 py-3 text-sm font-bold transition-colors ${activeTab === 'pending' ? 'text-purple-400 border-b-2 border-purple-500' : 'text-slate-500 hover:text-slate-300'}`}
+                        onClick={() => setActiveTab('pending')}
                     >
-                        ↩ הוסף איסוף למאגר
+                        ממתינים ({pendingRecords.length})
+                    </button>
+                    <button
+                        className={`flex-1 py-3 text-sm font-bold transition-colors ${activeTab === 'history' ? 'text-purple-400 border-b-2 border-purple-500' : 'text-slate-500 hover:text-slate-300'}`}
+                        onClick={() => setActiveTab('history')}
+                    >
+                        היסטוריה ({historyItems.length})
                     </button>
                 </div>
+
+                {activeTab === 'pending' ? (
+                    <>
+                        {/* Legend */}
+                        <div className="px-4 py-2 border-b border-border bg-purple-500/5 shrink-0">
+                            <div className="flex gap-4 text-[10px] text-slate-600" dir="rtl">
+                                <span>☑ = לסידור קווים היום</span>
+                                <span className="text-green-500">✓ = בוצע</span>
+                                <span className="text-red-500">✗ = לא בוצע</span>
+                                <span>● = היסטוריה אחרונה</span>
+                            </div>
+                        </div>
+
+                        {/* List */}
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2" dir="rtl">
+                            {pendingRecords.length === 0 && (
+                                <div className="flex flex-col items-center justify-center h-full text-slate-700 gap-3">
+                                    <div className="text-5xl">↩</div>
+                                    <div className="text-sm font-bold text-slate-500">אין איסופים ממתינים במאגר</div>
+                                    <div className="text-xs text-slate-600">לחץ על "+ הוסף איסוף" להתחיל</div>
+                                </div>
+                            )}
+
+                            {pendingRecords.map(r => (
+                                <PickupCard
+                                    key={r.id}
+                                    record={r}
+                                    selected={selectedIds.has(r.id)}
+                                    todayDone={todayStatus[r.id] ?? null}
+                                    onToggleSelected={() => handleToggleSelected(r.id)}
+                                    onToggleDone={done => handleToggleDone(r.id, done)}
+                                    onEdit={() => setEditing({ ...r })}
+                                    onDelete={() => handleDelete(r.id)}
+                                />
+                            ))}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-3 border-t border-border space-y-2 shrink-0">
+                            {selectedCount > 0 && (
+                                <div className="text-[11px] text-center text-purple-300 py-1 rounded-xl"
+                                    style={{ background: '#8b5cf610' }}>
+                                    ✅ {selectedCount} איסופים ישובצו אוטומטית לקו הקרוב
+                                </div>
+                            )}
+                            <button
+                                className="w-full text-sm font-bold py-2 rounded-xl border-2 transition-all"
+                                style={{
+                                    background: 'linear-gradient(135deg,#8b5cf618,#8b5cf608)',
+                                    color: '#a78bfa', borderColor: '#8b5cf650',
+                                }}
+                                onClick={() => setEditing(emptyRecord())}
+                            >
+                                ↩ הוסף איסוף למאגר
+                            </button>
+                        </div>
+                    </>
+                ) : (
+                    <div className="flex-1 flex flex-col min-h-0">
+                        <div className="p-3 shrink-0" dir="rtl">
+                            <input 
+                                className="input text-sm w-full"
+                                placeholder="חפש בהיסטוריית איסופים..."
+                                value={historySearch}
+                                onChange={e => setHistorySearch(e.target.value)}
+                            />
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2" dir="rtl">
+                            {filteredHistory.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center p-10 text-slate-500 text-sm">
+                                    לא נמצאו תוצאות
+                                </div>
+                            ) : (
+                                filteredHistory.map((item, idx) => (
+                                    <div key={`${item.record.id}-${idx}`} className="flex flex-col p-3 rounded-xl border border-border bg-white/5 space-y-1">
+                                        <div className="flex justify-between items-center">
+                                            <span className="font-bold text-sm text-slate-200">{item.record.name}</span>
+                                            <span className="text-[10px] text-slate-500 font-mono">{item.date}</span>
+                                        </div>
+                                        <div className="text-xs text-slate-400">
+                                            📦 {item.record.what_to_collect || 'ללא תיאור'}
+                                        </div>
+                                        {item.record.address_text && (
+                                            <div className="text-[10px] text-slate-600">
+                                                📍 {item.record.address_text}
+                                            </div>
+                                        )}
+                                        {item.note && (
+                                            <div className="text-[10px] text-blue-400/80">
+                                                💬 {item.note}
+                                            </div>
+                                        )}
+                                        {item.record.carts ? (
+                                            <div className="text-[10px] text-amber-500/80">
+                                                🛒 {item.record.carts} עגלות
+                                            </div>
+                                        ) : null}
+                                        <div className="pt-2 flex justify-end">
+                                            <button 
+                                                className="text-[10px] px-2 py-1 rounded border border-slate-500/40 text-slate-400 hover:bg-white/5 hover:text-slate-300 transition-colors"
+                                                onClick={() => handleUndoPickup(item.record.id, item.date)}
+                                            >
+                                                בטל והחזר לממתינים
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
 
             {editing && (

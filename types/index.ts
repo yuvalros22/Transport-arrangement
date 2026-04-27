@@ -33,6 +33,14 @@ export interface Route {
   pickups: RoutePickup[]   // pickup stops assigned to this route
   total_carts: number
   distance_km: number
+  driver?: Driver
+  isNightRoute?: boolean
+}
+
+export interface Driver {
+  id: string
+  name: string
+  truck_number: string
 }
 
 export interface RoutesResult {
@@ -63,6 +71,7 @@ export interface PickupRecord {
   phone?: string
   notes?: string
   carts?: number | string
+  is_urgent?: boolean
   completions: PickupCompletion[]   // history, newest first
 }
 

@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     const stops: Stop[] = body.stops ?? []
     const pickups: PickupRecord[] = body.pickups ?? []
     const selectedIds: string[] = body.selectedPickupIds ?? []
-    const numTrucks = Math.max(1, parseInt(body.numTrucks) || 6)
+    const numTrucks = Math.max(1, parseInt(body.numTrucks) || 7)
 
     if (!stops.length) {
       return NextResponse.json({ error: 'לא נשלחו עצירות' }, { status: 400 })
