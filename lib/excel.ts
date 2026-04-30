@@ -37,6 +37,7 @@ export function parseExcel(buffer: ArrayBuffer): ParsedRow[] {
   let colBoxes: number | undefined
   let colPackagesH: number | undefined
   let colCartNum: number | undefined
+  const colNotesIndices: number[] = []
 
   headers.forEach((h, i) => {
     const hClean = h.replace(/['"\s`_.-]/g, '')
@@ -48,7 +49,7 @@ export function parseExcel(buffer: ArrayBuffer): ParsedRow[] {
     if (col.address === undefined && /כתובת|address|רחוב/.test(h)) col.address = i
     if (col.from === undefined && /החל|from|time_from|מ.?שעה|משעה/.test(h)) col.from = i
     if (col.to === undefined && /עד.?שעה|time_to|until|לשעה/.test(h)) col.to = i
-    if (col.notes === undefined && /הערה|note|הערות/.test(h)) col.notes = i
+    if (/הערה|note|הערות/.test(h)) colNotesIndices.push(i)
     if (col.dir === undefined && /כיוון|direction/.test(h)) col.dir = i
 
     if (colTrays === undefined && /מגש/i.test(h)) colTrays = i
@@ -122,7 +123,7 @@ export function parseExcel(buffer: ArrayBuffer): ParsedRow[] {
       cart_number: colCartNum !== undefined ? clean(row[colCartNum]) : '',
       time_from: col.from !== undefined ? parseTime(row[col.from]) : '',
       time_to: col.to !== undefined ? parseTime(row[col.to]) : '',
-      notes: col.notes !== undefined ? clean(row[col.notes]) : '',
+      notes: colNotesIndices.map(idx => clean(row[idx])).filter(Boolean).join(' | '),
       lat: null,
       lng: null,
     })

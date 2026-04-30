@@ -4,7 +4,7 @@ import type { ReviewEntry, CustomerAddress, Stop } from '@/types'
 import { findCustomer } from '@/lib/customerDb'
 import {
     getManualEntries, upsertManualEntry, removeManualEntry,
-    getAddressOverrides, setEntryOverride,
+    getEntryOverrides, setEntryOverride,
     cancelEntry, restoreEntry, getCancelledCodes,
 } from '@/lib/sessionStore'
 import { MapPicker } from './MapPicker'
@@ -19,7 +19,7 @@ interface ParsedRow {
 }
 
 async function buildEntries(rows: ParsedRow[]): Promise<ReviewEntry[]> {
-    const overrides = await getAddressOverrides()
+    const overrides = await getEntryOverrides()
     const cancelled = await getCancelledCodes()
     
     return Promise.all(rows.map(async row => {
@@ -55,9 +55,9 @@ async function buildEntries(rows: ParsedRow[]): Promise<ReviewEntry[]> {
             boxes: row.boxes,
             packages_h: row.packages_h,
             cart_number: row.cart_number,
-            time_from: row.time_from,
-            time_to: row.time_to,
-            notes: row.notes,
+            time_from: override?.time_from || row.time_from || customer?.time_from || '',
+            time_to: override?.time_to || row.time_to || customer?.time_to || '',
+            notes: override?.notes || row.notes || customer?.notes || '',
             lat, lng, address_text, address_label,
             isKnown: !!customer,
             needsAddress: lat === null,
