@@ -1072,7 +1072,10 @@ export function MainView() {
         let bestR = newRoutes[0]
         let bestDist = Infinity
         
+        const pDir = (p.lat ?? 32.38639) >= 32.38639 ? 'צפון' : 'דרום'
+        
         for (const route of newRoutes) {
+          if (route.direction !== pDir) continue
           let minDist = Infinity
           for (const s of route.stops) {
             if (!s.lat || !s.lng) continue
@@ -1082,6 +1085,22 @@ export function MainView() {
           if (minDist < bestDist) {
             bestDist = minDist
             bestR = route
+          }
+        }
+        
+        // Fallback if no routes in that direction
+        if (!bestR) {
+          for (const route of newRoutes) {
+            let minDist = Infinity
+            for (const s of route.stops) {
+              if (!s.lat || !s.lng) continue
+              const d = haversine(p.lat, p.lng, s.lat, s.lng)
+              if (d < minDist) minDist = d
+            }
+            if (minDist < bestDist) {
+              bestDist = minDist
+              bestR = route
+            }
           }
         }
         if (bestR) {

@@ -34,7 +34,7 @@ function centroid(stops: Stop[]) {
 }
 
 // A stop is "north" if its latitude is above Hagla
-const isNorthStop = (s: Stop) => (s.lat ?? HAGLA.lat) >= HAGLA.lat - 0.005
+const isNorthStop = (s: {lat?: number | null}) => (s.lat ?? HAGLA.lat) >= HAGLA.lat
 
 // ─── Time helpers ─────────────────────────────────────────────────────────────
 
@@ -257,17 +257,34 @@ export function assignPickups(routes: Route[], pickups: PickupRecord[]): Route[]
   }))
 
   withCoords.forEach(pickup => {
-    // Find the route with the closest stop to this pickup
-    let bestRouteIdx = 0
+    const pDir = (pickup.lat ?? HAGLA.lat) >= HAGLA.lat ? 'צפון' : 'דרום'
+    
+    // Find the route with the closest stop to this pickup, matching direction
+    let bestRouteIdx = -1
     let bestDist = Infinity
 
     result.forEach((route, ri) => {
+      if (route.direction !== pDir) return
       route.stops.forEach(stop => {
         if (!stop.lat || !stop.lng) return
         const d = haversine(pickup.lat!, pickup.lng!, stop.lat, stop.lng)
         if (d < bestDist) { bestDist = d; bestRouteIdx = ri }
       })
     })
+
+    // Fallback if no routes in that direction exist
+    if (bestRouteIdx === -1) {
+      result.forEach((route, ri) => {
+        route.stops.forEach(stop => {
+          if (!stop.lat || !stop.lng) return
+          const d = haversine(pickup.lat!, pickup.lng!, stop.lat, stop.lng)
+          if (d < bestDist) { bestDist = d; bestRouteIdx = ri }
+        })
+      })
+    }
+    
+    // Failsafe if absolutely no stops have coords in any route
+    if (bestRouteIdx === -1) bestRouteIdx = 0
 
     const rp: RoutePickup = {
       id: pickup.id,
