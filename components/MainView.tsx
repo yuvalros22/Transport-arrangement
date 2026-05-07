@@ -81,11 +81,11 @@ function ColumnsView({
                 <span className="text-slate-500">·</span>
                 <span className="text-slate-500">~{route.distance_km}ק"מ</span>
               </div>
-              
+
               {/* Driver & Night Route Controls */}
               <div className="space-y-1.5 p-2 rounded-xl bg-black/20 border border-white/5">
                 <div className="flex items-center justify-between gap-2">
-                  <select 
+                  <select
                     className="input text-[11px] py-1 bg-transparent border-slate-700/50 w-full text-slate-200"
                     value={route.driver?.id || ''}
                     onChange={e => onAssignDriver(route.id, e.target.value)}
@@ -97,11 +97,11 @@ function ColumnsView({
                   </select>
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer w-max pl-1">
-                  <input 
-                    type="checkbox" 
-                    className="w-3.5 h-3.5 rounded border-slate-600 bg-transparent text-purple-500 focus:ring-purple-500" 
+                  <input
+                    type="checkbox"
+                    className="w-3.5 h-3.5 rounded border-slate-600 bg-transparent text-purple-500 focus:ring-purple-500"
                     checked={!!route.isNightRoute}
-                    onChange={e => onToggleNightRoute(route.id, e.target.checked)} 
+                    onChange={e => onToggleNightRoute(route.id, e.target.checked)}
                   />
                   <span className="text-[10px] font-bold text-slate-300">🌙 קו לילה</span>
                 </label>
@@ -309,14 +309,14 @@ function mergeIntoExistingRoutes(
         if (route.stops[i].name.trim().toLowerCase() === newName) {
           route.stops[i] = {
             ...route.stops[i],
-            carts:      ns.carts      ?? route.stops[i].carts,
-            trays:      ns.trays,
-            carriers:   ns.carriers,
-            boxes:      ns.boxes,
+            carts: ns.carts ?? route.stops[i].carts,
+            trays: ns.trays,
+            carriers: ns.carriers,
+            boxes: ns.boxes,
             packages_h: ns.packages_h,
-            time_from:  ns.time_from  || route.stops[i].time_from,
-            time_to:    ns.time_to    || route.stops[i].time_to,
-            notes:      ns.notes !== undefined ? ns.notes : route.stops[i].notes,
+            time_from: ns.time_from || route.stops[i].time_from,
+            time_to: ns.time_to || route.stops[i].time_to,
+            notes: ns.notes !== undefined ? ns.notes : route.stops[i].notes,
           }
           found = true
           break outer
@@ -591,10 +591,10 @@ function RouteCard({
               ...(pCarts > 0 ? [[`↩ ${pCarts} עגלות לאיסוף`, '#a78bfa']] : []),
               [`~${route.distance_km}ק"מ`, '#94a3b8'],
             ].map(([txt, col]) => (
-            <span key={txt} className="text-[11px] font-semibold px-2 py-0.5 rounded-full border"
-              style={{ color: col, borderColor: col + '33', background: col + '12' }}>
-              {txt}
-            </span>
+              <span key={txt} className="text-[11px] font-semibold px-2 py-0.5 rounded-full border"
+                style={{ color: col, borderColor: col + '33', background: col + '12' }}>
+                {txt}
+              </span>
             ))
           })()}
         </div>
@@ -817,8 +817,8 @@ export function MainView() {
         setIsInitialLoadDone(true)
       }
     }).catch(e => {
-        console.error("Failed to load saved routes:", e)
-        setIsInitialLoadDone(true)
+      console.error("Failed to load saved routes:", e)
+      setIsInitialLoadDone(true)
     })
 
     getAllDrivers().then(setDrivers).catch(e => console.error(e))
@@ -844,16 +844,16 @@ export function MainView() {
 
   // Drag state
   const [dragSrc, setDragSrc] = useState<DragSrc | null>(null)
-  const [dragOver, setDragOver] = useState<{ type: 'stop'|'pickup'; routeId: number; index: number } | null>(null)
+  const [dragOver, setDragOver] = useState<{ type: 'stop' | 'pickup'; routeId: number; index: number } | null>(null)
 
   // ── Drag handlers ────────────────────────────────────────────────────────────
-  const handleDragStart = useCallback((type: 'stop'|'pickup', routeId: number, index: number) => {
+  const handleDragStart = useCallback((type: 'stop' | 'pickup', routeId: number, index: number) => {
     setDragSrc({ type, routeId, index })
     // Expand both source route and keep open
     setOpenRoute(routeId)
   }, [])
 
-  const handleDragOver = useCallback((e: React.DragEvent, type: 'stop'|'pickup', routeId: number, index: number) => {
+  const handleDragOver = useCallback((e: React.DragEvent, type: 'stop' | 'pickup', routeId: number, index: number) => {
     e.preventDefault()
     if (!dragSrc || dragSrc.type !== type) return;
     setDragOver({ type, routeId, index })
@@ -861,7 +861,7 @@ export function MainView() {
     setOpenRoute(prev => prev === routeId ? prev : routeId)
   }, [dragSrc])
 
-  const handleDrop = useCallback((type: 'stop'|'pickup', toRouteId: number, toIndex: number) => {
+  const handleDrop = useCallback((type: 'stop' | 'pickup', toRouteId: number, toIndex: number) => {
     if (!dragSrc || dragSrc.type !== type) return
     const { routeId: fromRouteId, index: fromIdx } = dragSrc
 
@@ -1008,7 +1008,7 @@ export function MainView() {
       const route = routes.find(r => r.id === routeId)
       if (!route) return prev
       route.pickups.splice(pickupIdx, 1)
-      
+
       const finalRoutes = routes.filter(r => r.stops.length > 0 || (r.pickups && r.pickups.length > 0))
       return {
         ...prev,
@@ -1061,19 +1061,19 @@ export function MainView() {
     try {
       const pickupsList = await getAllPickupRecords()
       const selectedIds = await getSelectedPickupIdsArray()
-      
+
       const newRoutes = result.routes.map(r => ({ ...r, pickups: [] as any[] }))
 
       // Only assign selected pickups that have lat/lng
       for (const p of pickupsList) {
         if (!selectedIds.includes(p.id)) continue;
         if (!p.lat || !p.lng) continue;
-        
+
         let bestR = newRoutes[0]
         let bestDist = Infinity
-        
+
         const pDir = (p.lat ?? 32.38639) >= 32.38639 ? 'צפון' : 'דרום'
-        
+
         for (const route of newRoutes) {
           if (route.direction !== pDir) continue
           let minDist = Infinity
@@ -1087,7 +1087,7 @@ export function MainView() {
             bestR = route
           }
         }
-        
+
         // Fallback if no routes in that direction
         if (!bestR) {
           for (const route of newRoutes) {
@@ -1109,7 +1109,7 @@ export function MainView() {
       }
 
       setResult({ ...result, routes: newRoutes })
-    } catch(e: any) {
+    } catch (e: any) {
       setError(e.message)
     } finally {
       setLoading(false)
@@ -1139,7 +1139,7 @@ export function MainView() {
             suggestedName: fileName,
             types: [{
               description: 'Excel File',
-              accept: {'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']},
+              accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
             }],
           })
           const writable = await handle.createWritable()
@@ -1208,7 +1208,7 @@ export function MainView() {
         <div className="flex gap-2 mr-auto items-center flex-wrap">
           {(() => {
             const sumPickupsCarts = result?.routes.reduce((acc, r) => acc + (r.pickups?.reduce((pA, p) => pA + (p.carts !== undefined && p.carts !== '' ? Number(p.carts) : 1), 0) || 0), 0) || 0
-            
+
             return result && [
               [`🚛 ${result.routes.length} קווים`, '#f59e0b'],
               [`👥 ${result.total_customers} לקוחות`, '#3b82f6'],
@@ -1262,6 +1262,19 @@ export function MainView() {
             }}
           >
             👨‍✈️ נהגים
+          </button>
+
+          {/* Theme toggle */}
+          <button
+            onClick={() => document.documentElement.classList.toggle('light-mode')}
+            className="flex items-center justify-center w-[38px] h-[38px] rounded-xl border-2 transition-all hover:scale-105 active:scale-95"
+            style={{
+              background: 'linear-gradient(135deg, #94a3b815, #94a3b805)',
+              borderColor: '#94a3b840',
+            }}
+            title="החלף תצוגה מוארת/חשוכה"
+          >
+            🌓
           </button>
 
           {/* View toggle — only shown when there are results */}
@@ -1388,7 +1401,7 @@ export function MainView() {
                   type="file"
                   accept=".xlsx,.xls"
                   className="hidden"
-                  onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value=''; handleFile(f) } }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; handleFile(f) } }}
                 />
 
                 {result && (
@@ -1562,12 +1575,12 @@ export function MainView() {
       {showCustomers && <CustomerManager onClose={() => setShowCustomers(false)} />}
       {showPickups && <PickupsManager onClose={() => setShowPickups(false)} />}
       {showDrivers && (
-        <DriversManager 
+        <DriversManager
           onClose={() => {
             setShowDrivers(false)
             // Reload drivers just in case changes were made
             getAllDrivers().then(setDrivers).catch(e => console.error(e))
-          }} 
+          }}
         />
       )}
     </div>
