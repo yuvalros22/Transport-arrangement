@@ -1112,10 +1112,35 @@ export function MainView() {
         body: JSON.stringify({ routes: result.routes, date: result.date }),
       })
       const blob = await r.blob()
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = `קווים-${result.date.replace(/\//g, '-')}.xlsx`
-      a.click()
+      const fileName = `קווים-${result.date.replace(/\//g, '-')}.xlsx`
+
+      if ('showSaveFilePicker' in window) {
+        try {
+          const handle = await (window as any).showSaveFilePicker({
+            suggestedName: fileName,
+            types: [{
+              description: 'Excel File',
+              accept: {'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']},
+            }],
+          })
+          const writable = await handle.createWritable()
+          await writable.write(blob)
+          await writable.close()
+        } catch (err: any) {
+          // If the user didn't just cancel the dialog, fallback
+          if (err.name !== 'AbortError') {
+            const a = document.createElement('a')
+            a.href = URL.createObjectURL(blob)
+            a.download = fileName
+            a.click()
+          }
+        }
+      } else {
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = fileName
+        a.click()
+      }
     } finally { setExporting(false) }
   }
 

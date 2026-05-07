@@ -41,11 +41,28 @@ export async function POST(req: NextRequest) {
   titleRow.height = 28
   sum.addRow([])
 
+  const borderAll: Partial<ExcelJS.Borders> = {
+    top: { style: 'thin', color: { argb: 'FF000000' } },
+    left: { style: 'thin', color: { argb: 'FF000000' } },
+    bottom: { style: 'thin', color: { argb: 'FF000000' } },
+    right: { style: 'thin', color: { argb: 'FF000000' } }
+  }
+
+  sum.pageSetup = {
+    orientation: 'landscape',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    margins: { left: 0.2, right: 0.2, top: 0.4, bottom: 0.4, header: 0.1, footer: 0.1 }
+  }
+
   // Header
   const hRow = sum.addRow(['קו', 'כיוון', 'עצירות', 'מגשים', 'מנשאים', 'ארגזים', 'אריזות ח.ריבוי', 'עגלות לחלוקה', 'עגלות לאיסוף', 'ק"מ'])
   hRow.eachCell(c => {
     c.font = { bold: true }
     c.alignment = { horizontal: 'center', readingOrder: 'rtl' }
+    c.border = borderAll
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } }
   })
 
   routes.forEach(r => {
@@ -58,7 +75,10 @@ export async function POST(req: NextRequest) {
       traysSum || '', carriersSum || '', boxesSum || '', packages_hSum || '',
       r.total_carts, getRoutePickupCarts(r), r.distance_km,
     ])
-    row.eachCell(c => { c.alignment = { horizontal: 'center' } })
+    row.eachCell({ includeEmpty: true }, c => { 
+      c.alignment = { horizontal: 'center' } 
+      c.border = borderAll
+    })
     row.getCell(1).font = { bold: true, color: { argb: r.color.replace('#', 'FF') } }
   })
 
@@ -77,134 +97,142 @@ export async function POST(req: NextRequest) {
     routes.reduce((a, r) => a + r.distance_km, 0).toFixed(1),
   ])
   totRow.font = { bold: true }
+  totRow.eachCell({ includeEmpty: true }, c => c.border = borderAll)
+  sum.pageSetup.printArea = `A1:J${sum.rowCount}`
 
   // ── One sheet per route ────────────────────────────────────────────────────
   for (const route of routes) {
-    let sheetName = `${route.name}${route.isNightRoute ? ' (לילה)' : ''} - ${route.driver?.name || 'ללא נהג'}`
-    // Excel sheet name max 31 chars, strip bad chars
-    sheetName = sheetName.replace(/[\*\?\/\\\[\]]/g, '').substring(0, 31)
+    let baseSheetName = `${route.name}${route.isNightRoute ? ' (לילה)' : ''} - ${route.driver?.name || 'ללא נהג'}`
+    baseSheetName = baseSheetName.replace(/[\*\?\/\\\[\]]/g, '')
 
-    const ws = wb.addWorksheet(sheetName, { 
+    for (let i = 1; i <= 2; i++) {
+      let sheetName = i === 1 ? baseSheetName.substring(0, 31) : `${baseSheetName.substring(0, 24)} - עותק`
+      
+      const ws = wb.addWorksheet(sheetName, { 
+        views: [{ rightToLeft: true }],
+        pageSetup: {
+          orientation: 'landscape',
+          fitToPage: true,
+          fitToWidth: 1,
+          fitToHeight: 0,
+          margins: { left: 0.2, right: 0.2, top: 0.4, bottom: 0.4, header: 0.1, footer: 0.1 }
+        }
+      })
+      ws.columns = [
+        { key: 'order',   width: 5  },
+        { key: 'name',    width: 28 },
+        { key: 'address', width: 34 },
+        { key: 'trays',   width: 8  },
+        { key: 'carriers',width: 8  },
+        { key: 'boxes',   width: 8  },
+        { key: 'packages_h',width: 14},
+        { key: 'carts',   width: 8  },
+        { key: 'time',    width: 16 },
+        { key: 'notes',   width: 44 },
+      ]
+
+      // Route title
+      const nightText = route.isNightRoute ? `  ·  🌙 קו לילה` : ''
+      const driverText = route.driver ? `נהג: ${route.driver.name} (משאית: ${route.driver.truck_number})` : 'ללא נהג'
+      const titleText = `${route.name}${nightText}  ·  ${driverText}  ·  ${date}`
+      const rTitle = ws.addRow([titleText, '', '', '', '', '', '', '', '', ''])
+      rTitle.getCell(1).font = { bold: true, size: 14 }
+      rTitle.height = 24
+      ws.mergeCells(`A1:J1`)
+
+      const pCarts = getRoutePickupCarts(route)
+      const pTxt = pCarts > 0 ? `  ·  ↩ ${pCarts} לאיסוף` : ''
+      const summary = ws.addRow([`${route.stops.length} עצירות  ·  🛒 ${route.total_carts} לחלוקה${pTxt}  ·  ~${route.distance_km} ק"מ`, '', '', '', '', '', '', '', '', ''])
+      summary.getCell(1).font = { italic: true }
+      ws.mergeCells(`A2:J2`)
+      ws.addRow([])
+
+      // Column headers
+      const colHead = ws.addRow(['#', 'לקוח', 'כתובת', 'מגשים', 'מנשאים', 'ארגזים', 'אריזות ח.ריבוי', 'עגלות', 'שעות', 'הערות'])
+      colHead.eachCell(c => {
+        c.font = { bold: true }
+        c.border = borderAll
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } }
+      })
+
+      // Hagla start
+      const startRow = ws.addRow(['🏠', 'מושב חגלה — יציאה', '', '', '', '', '', '', '', ''])
+      startRow.getCell(1).font = { italic: true }
+      startRow.getCell(2).font = { italic: true }
+      startRow.eachCell({ includeEmpty: true }, c => c.border = borderAll)
+
+      // Stops
+      route.stops.forEach((s) => {
+        let cartVal: number | string = s.carts || ''
+        if (typeof cartVal === 'number' && !Number.isInteger(cartVal)) {
+            cartVal = Math.round(cartVal * 10) / 10
+        }
+
+        const row = ws.addRow([
+          s.cart_number || '',
+          s.name,
+          s.address,
+          (s as any).trays || '',
+          (s as any).carriers || '',
+          (s as any).boxes || '',
+          (s as any).packages_h || '',
+          cartVal,
+          s.time_window || '',
+          s.notes || '',
+        ])
+        row.getCell(8).font = { bold: true } // carts bold
+        row.eachCell({ includeEmpty: true }, c => c.border = borderAll)
+      })
+
+      // Hagla end
+      const endRow = ws.addRow(['🏠', 'מושב חגלה — חזרה', '', '', '', '', '', '', '', ''])
+      endRow.getCell(1).font = { italic: true }
+      endRow.getCell(2).font = { italic: true }
+      endRow.eachCell({ includeEmpty: true }, c => c.border = borderAll)
+
+      // Pickups
+      if (route.pickups && route.pickups.length > 0) {
+        ws.addRow([])
+        const pTitle = ws.addRow(['איסופים', '', '', '', '', '', '', '', '', ''])
+        pTitle.getCell(1).font = { bold: true, size: 12 }
+        ws.mergeCells(`A${pTitle.number}:J${pTitle.number}`)
+
+        route.pickups.forEach((p) => {
+          let pCartVal: number | string = p.carts !== undefined && p.carts !== '' && p.carts !== null ? p.carts : 1
+          if (typeof pCartVal === 'number' && !Number.isInteger(pCartVal)) {
+              pCartVal = Math.round(pCartVal * 10) / 10
+          }
+
+          const row = ws.addRow([
+            '↩',
+            p.name,
+            p.address_text,
+            p.what_to_collect || '',
+            '', '', '',
+            pCartVal,
+            '',
+            p.phone ? `טלפון: ${p.phone} ${p.notes ? ' | ' + p.notes : ''}` : (p.notes || ''),
+          ])
+          ws.mergeCells(`D${row.number}:G${row.number}`)
+          row.getCell(8).font = { bold: true }
+          row.eachCell({ includeEmpty: true }, c => c.border = borderAll)
+        })
+      }
+
+      ws.pageSetup.printArea = `A1:J${ws.rowCount}`
+    }
+
+    // ── Driver Fillable Form Sheet ─────────────────────────────────────────────
+    let formSheetName = `טופס - ${baseSheetName.substring(0, 24)}`
+
+    const formWs = wb.addWorksheet(formSheetName, { 
       views: [{ rightToLeft: true }],
       pageSetup: {
         orientation: 'landscape',
         fitToPage: true,
         fitToWidth: 1,
         fitToHeight: 0,
-        margins: { left: 0.2, right: 0.2, top: 0.4, bottom: 0.4, header: 0.1, footer: 0.1 },
-        printArea: 'A1:J200' 
-      }
-    })
-    ws.columns = [
-      { key: 'order',   width: 5  },
-      { key: 'name',    width: 28 },
-      { key: 'address', width: 34 },
-      { key: 'trays',   width: 8  },
-      { key: 'carriers',width: 8  },
-      { key: 'boxes',   width: 8  },
-      { key: 'packages_h',width: 14},
-      { key: 'carts',   width: 8  },
-      { key: 'time',    width: 16 },
-      { key: 'notes',   width: 44 },
-    ]
-
-    // Route title
-    const nightText = route.isNightRoute ? `  ·  🌙 קו לילה` : ''
-    const driverText = route.driver ? `נהג: ${route.driver.name} (משאית: ${route.driver.truck_number})` : 'ללא נהג'
-    const titleText = `${route.name}${nightText}  ·  ${driverText}  ·  ${date}`
-    const rTitle = ws.addRow([titleText, '', '', '', '', '', '', '', '', ''])
-    rTitle.getCell(1).font = { bold: true, size: 14 }
-    rTitle.height = 24
-    ws.mergeCells(`A1:J1`)
-
-    const pCarts = getRoutePickupCarts(route)
-    const pTxt = pCarts > 0 ? `  ·  ↩ ${pCarts} לאיסוף` : ''
-    const summary = ws.addRow([`${route.stops.length} עצירות  ·  🛒 ${route.total_carts} לחלוקה${pTxt}  ·  ~${route.distance_km} ק"מ`, '', '', '', '', '', '', '', '', ''])
-    summary.getCell(1).font = { italic: true }
-    ws.mergeCells(`A2:J2`)
-    ws.addRow([])
-
-    // Column headers
-    const colHead = ws.addRow(['#', 'לקוח', 'כתובת', 'מגשים', 'מנשאים', 'ארגזים', 'אריזות ח.ריבוי', 'עגלות', 'שעות', 'הערות'])
-    colHead.eachCell(c => {
-      c.font = { bold: true }
-      c.border = { bottom: { style: 'thin', color: { argb: 'FF1E2D45' } } }
-    })
-
-    // Hagla start
-    const startRow = ws.addRow(['🏠', 'מושב חגלה — יציאה', '', '', '', '', '', '', '', ''])
-    startRow.getCell(1).font = { italic: true }
-    startRow.getCell(2).font = { italic: true }
-
-    // Stops
-    route.stops.forEach((s) => {
-      // For decimal numbers, format it to max 1 decimal place if it's not a whole number.
-      let cartVal: number | string = s.carts || ''
-      if (typeof cartVal === 'number' && !Number.isInteger(cartVal)) {
-          cartVal = Math.round(cartVal * 10) / 10
-      }
-
-      const row = ws.addRow([
-        s.cart_number || '',
-        s.name,
-        s.address,
-        (s as any).trays || '',
-        (s as any).carriers || '',
-        (s as any).boxes || '',
-        (s as any).packages_h || '',
-        cartVal,
-        s.time_window || '',
-        s.notes || '',
-      ])
-      row.getCell(8).font = { bold: true } // carts bold
-    })
-
-    // Hagla end
-    const endRow = ws.addRow(['🏠', 'מושב חגלה — חזרה', '', '', '', '', '', '', '', ''])
-    endRow.getCell(1).font = { italic: true }
-    endRow.getCell(2).font = { italic: true }
-
-    // Pickups
-    if (route.pickups && route.pickups.length > 0) {
-      ws.addRow([])
-      const pTitle = ws.addRow(['איסופים', '', '', '', '', '', '', '', '', ''])
-      pTitle.getCell(1).font = { bold: true, size: 12 }
-      ws.mergeCells(`A${pTitle.number}:J${pTitle.number}`)
-
-      route.pickups.forEach((p) => {
-        let pCartVal: number | string = p.carts !== undefined && p.carts !== '' && p.carts !== null ? p.carts : 1
-        if (typeof pCartVal === 'number' && !Number.isInteger(pCartVal)) {
-            pCartVal = Math.round(pCartVal * 10) / 10
-        }
-
-        const row = ws.addRow([
-          '↩',
-          p.name,
-          p.address_text,
-          p.what_to_collect || '',
-          '', '', '',
-          pCartVal,
-          '',
-          p.phone ? `טלפון: ${p.phone} ${p.notes ? ' | ' + p.notes : ''}` : (p.notes || ''),
-        ])
-        ws.mergeCells(`D${row.number}:G${row.number}`)
-        row.getCell(8).font = { bold: true }
-      })
-    }
-
-    // ── Driver Fillable Form Sheet ─────────────────────────────────────────────
-    let formSheetName = `טופס - ${sheetName}`
-    formSheetName = formSheetName.substring(0, 31)
-
-    const formWs = wb.addWorksheet(formSheetName, { 
-      views: [{ rightToLeft: true }],
-      pageSetup: {
-        orientation: 'portrait',
-        fitToPage: true,
-        fitToWidth: 1,
-        fitToHeight: 0,
-        margins: { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.1, footer: 0.1 },
-        printArea: 'A1:H200' 
+        margins: { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.1, footer: 0.1 }
       }
     })
 
@@ -219,6 +247,10 @@ export async function POST(req: NextRequest) {
       { key: 'sign',    width: 25 },
     ]
 
+    const nightText = route.isNightRoute ? `  ·  🌙 קו לילה` : ''
+    const driverText = route.driver ? `נהג: ${route.driver.name} (משאית: ${route.driver.truck_number})` : 'ללא נהג'
+    const titleText = `${route.name}${nightText}  ·  ${driverText}  ·  ${date}`
+
     const fTitle = formWs.addRow([`טופס איסוף נהג  ·  ${titleText}`, '', '', '', '', '', '', ''])
     fTitle.getCell(1).font = { bold: true, size: 14 }
     fTitle.height = 24
@@ -228,7 +260,8 @@ export async function POST(req: NextRequest) {
     const fHead = formWs.addRow(['#', 'לקוח', 'מגשים', 'מנשאים', 'ארגזים', 'אריזות ח.ריבוי', 'עגלות', 'חתימת לקוח/הערות'])
     fHead.eachCell(c => {
       c.font = { bold: true }
-      c.border = { bottom: { style: 'thin', color: { argb: 'FF1E2D45' } } }
+      c.border = borderAll
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } }
     })
 
     route.stops.forEach((s) => {
@@ -239,8 +272,8 @@ export async function POST(req: NextRequest) {
       ])
       // add standard row height for writing
       row.height = 30
-      row.eachCell(c => {
-        c.border = { bottom: { style: 'dotted', color: { argb: 'FFCCCCCC' } } }
+      row.eachCell({ includeEmpty: true }, c => {
+        c.border = borderAll
         c.alignment = { vertical: 'middle' }
       })
     })
@@ -258,12 +291,14 @@ export async function POST(req: NextRequest) {
           '', '', '', '', '', ''
         ])
         row.height = 30
-        row.eachCell(c => {
-          c.border = { bottom: { style: 'dotted', color: { argb: 'FFCCCCCC' } } }
+        row.eachCell({ includeEmpty: true }, c => {
+          c.border = borderAll
           c.alignment = { vertical: 'middle' }
         })
       })
     }
+
+    formWs.pageSetup.printArea = `A1:H${formWs.rowCount}`
   }
 
   const buffer = await wb.xlsx.writeBuffer()
