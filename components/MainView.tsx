@@ -90,9 +90,9 @@ function ColumnsView({
                     value={route.driver?.id || ''}
                     onChange={e => onAssignDriver(route.id, e.target.value)}
                   >
-                    <option value="">👨‍✈️ שיבוץ נהג...</option>
+                    <option className="bg-[#0f1d30] text-slate-200" value="">👨‍✈️ שיבוץ נהג...</option>
                     {allDrivers.map(d => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
+                      <option className="bg-[#0f1d30] text-slate-200" key={d.id} value={d.id}>{d.name}</option>
                     ))}
                   </select>
                 </div>
