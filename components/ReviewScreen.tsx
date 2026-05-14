@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import type { ReviewEntry, CustomerAddress, Stop } from '@/types'
 import { findCustomer } from '@/lib/customerDb'
 import {
@@ -321,72 +321,137 @@ function EntryCard({ entry, onPickAddress, onSelectAddress, onRemove, onFieldCha
     )
 }
 
+import { GoogleMap, useJsApiLoader, OverlayView } from '@react-google-maps/api'
+
 // ─── Preview map ──────────────────────────────────────────────────────────────
 function PreviewMap({ entries, onPickAddress }: {
     entries: ReviewEntry[]
     onPickAddress: (e: ReviewEntry) => void
 }) {
-    const divRef = useRef<HTMLDivElement>(null)
-    const mapRef = useRef<any>(null)
-    const markersRef = useRef<any[]>([])
-    const [mapReady, setMapReady] = useState(false)
+    const { isLoaded } = useJsApiLoader({
+        id: 'google-map-script',
+        googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
+        libraries: ["places"],
+        language: 'he',
+        region: 'IL'
+    })
 
-    useEffect(() => {
-        if (!divRef.current || mapRef.current) return
-        let cancelled = false
-        const boot = async () => {
-            if (!window.L) {
-                await new Promise<void>(res => {
-                    if (document.querySelector('script[src*="leaflet"]')) { res(); return }
-                    const link = document.createElement('link'); link.rel = 'stylesheet'
-                    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-                    document.head.appendChild(link)
-                    const script = document.createElement('script')
-                    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-                    script.onload = () => res(); document.head.appendChild(script)
-                })
-            }
-            if (cancelled || !divRef.current) return
-            const L = window.L
-            const map = L.map(divRef.current, { center: [32.38639, 34.92667], zoom: 8 })
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                attribution: '© OpenStreetMap © Carto', maxZoom: 19,
-            }).addTo(map)
-            L.marker([32.38639, 34.92667], {
-                icon: L.divIcon({
-                    html: `<div style="width:28px;height:28px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #f59e0b">🏠</div>`,
-                    iconSize: [28, 28], iconAnchor: [14, 14], className: '',
-                }),
-            }).addTo(map)
-            mapRef.current = map
-            if (!cancelled) setMapReady(true)
-        }
-        boot()
-        return () => { cancelled = true }
+    const [map, setMap] = useState<google.maps.Map | null>(null)
+    const [openPopupKey, setOpenPopupKey] = useState<string | null>(null)
+
+    const onLoad = useCallback(function callback(map: google.maps.Map) {
+        setMap(map)
     }, [])
 
-    useEffect(() => {
-        if (!mapReady || !mapRef.current) return
-        const L = window.L; const map = mapRef.current
-        markersRef.current.forEach(m => map.removeLayer(m))
-        markersRef.current = []
-        const bounds: [number, number][] = [[32.38639, 34.92667]]
-        entries.forEach(e => {
-            if (!e.lat || !e.lng) return
-            const icon = L.divIcon({
-                html: `<div style="width:22px;height:22px;border-radius:50%;background:${e.needsAddress ? '#ef4444' : '#10b981'};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:900;color:#fff;border:2px solid rgba(255,255,255,.7);font-family:Heebo,sans-serif;cursor:pointer">${e.carts || '?'}</div>`,
-                iconSize: [22, 22], iconAnchor: [11, 11], className: '',
-            })
-            const marker = L.marker([e.lat, e.lng], { icon }).addTo(map)
-            marker.bindPopup(`<div style="font-family:Heebo,sans-serif;direction:rtl;padding:4px"><b>${e.name}</b><br><span style="font-size:11px;color:#94a3b8">${e.address_text}</span></div>`)
-            marker.on('click', () => onPickAddress(e))
-            markersRef.current.push(marker)
-            bounds.push([e.lat, e.lng])
-        })
-        if (bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40] })
-    }, [entries, mapReady])
+    const onUnmount = useCallback(function callback() {
+        setMap(null)
+    }, [])
 
-    return <div ref={divRef} className="w-full h-full" />
+    const mapOptions = useMemo<google.maps.MapOptions>(() => ({
+        disableDefaultUI: true,
+        zoomControl: true,
+        styles: [
+            { elementType: 'geometry', stylers: [{ color: '#242f3e' }] },
+            { elementType: 'labels.text.stroke', stylers: [{ color: '#242f3e' }] },
+            { elementType: 'labels.text.fill', stylers: [{ color: '#746855' }] },
+            { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
+            { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
+            { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#263c3f' }] },
+            { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#6b9a76' }] },
+            { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#38414e' }] },
+            { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#212a37' }] },
+            { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#9ca5b3' }] },
+            { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#746855' }] },
+            { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#1f2835' }] },
+            { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#f3d19c' }] },
+            { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#2f3948' }] },
+            { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
+            { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#17263c' }] },
+            { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#515c6d' }] },
+            { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#17263c' }] }
+        ]
+    }), [])
+
+    useEffect(() => {
+        if (!map) return
+        const bounds = new window.google.maps.LatLngBounds()
+        bounds.extend({ lat: 32.38639, lng: 34.92667 })
+        let hasPoints = false
+        entries.forEach(e => {
+            if (e.lat && e.lng) {
+                bounds.extend({ lat: e.lat, lng: e.lng })
+                hasPoints = true
+            }
+        })
+        if (hasPoints) {
+            map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 })
+        }
+    }, [map, entries])
+
+    if (!isLoaded) return <div className="p-4 text-slate-400">Loading Map...</div>
+
+    return (
+        <div className="w-full h-full relative">
+            <GoogleMap
+                mapContainerStyle={{ width: '100%', height: '100%' }}
+                center={{ lat: 32.38639, lng: 34.92667 }}
+                zoom={8}
+                onLoad={onLoad}
+                onUnmount={onUnmount}
+                options={mapOptions}
+                onClick={() => setOpenPopupKey(null)}
+            >
+                <OverlayView position={{ lat: 32.38639, lng: 34.92667 }} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
+                    <div style={{
+                        transform: 'translate(-50%, -50%)',
+                        width: '28px', height: '28px', background: '#fff', borderRadius: '50%',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px',
+                        border: '2px solid #f59e0b'
+                    }}>
+                        🏠
+                    </div>
+                </OverlayView>
+
+                {entries.map(e => {
+                    if (!e.lat || !e.lng) return null
+                    const isMissing = e.needsAddress
+                    return (
+                        <div key={e.code}>
+                            <OverlayView position={{ lat: e.lat, lng: e.lng }} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
+                                <div
+                                    onClick={(event) => { event.stopPropagation(); setOpenPopupKey(e.code); onPickAddress(e); }}
+                                    style={{
+                                        transform: 'translate(-50%, -50%)',
+                                        width: '22px', height: '22px', borderRadius: '50%',
+                                        background: isMissing ? '#ef4444' : '#10b981',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontSize: '9px', fontWeight: 900, color: '#fff',
+                                        border: '2px solid rgba(255,255,255,.7)', fontFamily: 'Heebo,sans-serif',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    {e.carts || '?'}
+                                </div>
+                            </OverlayView>
+                            {openPopupKey === e.code && (
+                                <OverlayView position={{ lat: e.lat, lng: e.lng }} mapPaneName={OverlayView.FLOAT_PANE}>
+                                    <div style={{
+                                        transform: 'translate(-50%, -100%)', marginTop: '-15px',
+                                        fontFamily: 'Heebo,sans-serif', direction: 'rtl', padding: '8px',
+                                        background: '#0f1d30', border: '1px solid #1e2d45', borderRadius: '8px',
+                                        color: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,0.4)', minWidth: '150px'
+                                    }}>
+                                        <div style={{ fontSize: '13px', fontWeight: 'bold' }}>{e.name}</div>
+                                        <div style={{ fontSize: '11px', color: '#94a3b8' }}>{e.address_text}</div>
+                                    </div>
+                                </OverlayView>
+                            )}
+                        </div>
+                    )
+                })}
+            </GoogleMap>
+        </div>
+    )
 }
 
 // ─── Main ReviewScreen ────────────────────────────────────────────────────────
