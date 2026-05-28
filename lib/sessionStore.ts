@@ -18,6 +18,7 @@ export interface SessionData {
     entryOverrides: Record<string, EntryOverride>
     selectedPickupIds: string[]
     routesResult?: RoutesResult
+    originalRows?: any[]
 }
 
 const emptySession = (): SessionData => ({
@@ -37,7 +38,8 @@ export async function loadSession(): Promise<SessionData> {
         manualEntries: data.data.manualEntries || [],
         entryOverrides: data.data.entryOverrides || {},
         selectedPickupIds: data.data.selectedPickupIds || [],
-        routesResult: data.data.routesResult
+        routesResult: data.data.routesResult,
+        originalRows: data.data.originalRows
     }
 }
 
@@ -156,5 +158,16 @@ export async function setRoutesResult(routes: RoutesResult | null) {
     const s = await loadSession()
     if (!routes) delete s.routesResult
     else s.routesResult = routes
+    await saveSession(s)
+}
+
+export async function getOriginalRows(): Promise<any[] | undefined> {
+    return (await loadSession()).originalRows
+}
+
+export async function setOriginalRows(rows: any[] | null) {
+    const s = await loadSession()
+    if (!rows) delete s.originalRows
+    else s.originalRows = rows
     await saveSession(s)
 }
