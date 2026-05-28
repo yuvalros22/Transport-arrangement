@@ -9,7 +9,8 @@ import { DriversManager } from './DriversManager'
 import { getAllPickupRecords } from '@/lib/pickupDb'
 import { getAllDrivers } from '@/lib/driverDb'
 import type { Driver } from '@/types'
-import { getSelectedPickupIdsArray, getRoutesResult, setRoutesResult } from '@/lib/sessionStore'
+import { getSelectedPickupIdsArray, getRoutesResult, setRoutesResult, setEntryOverride } from '@/lib/sessionStore'
+import { geocodeBatch } from '@/lib/geocode'
 
 // ─── Columns (board) view ─────────────────────────────────────────────────────
 function ColumnsView({
@@ -806,6 +807,7 @@ export function MainView() {
   useEffect(() => { resultRef.current = result }, [result])
   // ref for the hidden file input used when result already exists
   const reuploadRef = useRef<HTMLInputElement>(null)
+  const addressUpdateRef = useRef<HTMLInputElement>(null)
 
   // Load from Supabase on mount
   useEffect(() => {
@@ -1035,6 +1037,111 @@ export function MainView() {
       setLoading(false)
     }
   }, [])
+
+  // ── Address Update (End of Day) ─────────────────────────────────────────────────
+  const handleAddressUpdateFile = useCallback(async (file: File) => {
+    if (!result) return
+    setLoading(true); setError('')
+    const fd = new FormData()
+    fd.append('file', file)
+    try {
+      const r = await fetch('/api/parse-address-update', { method: 'POST', body: fd })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || 'שגיאה')
+      
+      const updates = d.rows as any[]
+      let updatedCount = 0
+
+      // Copy routes array
+      const newRoutes = [...result.routes.map(route => ({
+        ...route,
+        stops: [...route.stops.map(s => ({ ...s }))]
+      }))]
+
+      const addressesToGeocode = new Set<string>()
+
+      for (const route of newRoutes) {
+        for (const stop of route.stops) {
+          const cartNum = String(stop.cart_number || '').trim()
+          if (!cartNum) continue
+          
+          const update = updates.find(u => String(u.cart_number).trim() === cartNum)
+          if (update) {
+            updatedCount++
+            if (update.address) {
+              stop.address = update.address
+              addressesToGeocode.add(update.address)
+            }
+            if (update.time_from) stop.time_from = update.time_from
+            if (update.time_to) stop.time_to = update.time_to
+            if (update.time_from || update.time_to) {
+              stop.time_window = `${update.time_from || ''}–${update.time_to || ''}`.replace(/^–|–$/g, '')
+            }
+          }
+        }
+      }
+
+      if (addressesToGeocode.size > 0) {
+        const batchReq = Array.from(addressesToGeocode).map(a => ({ address: a }))
+        const batchRes = await geocodeBatch(batchReq)
+        
+        for (const route of newRoutes) {
+          for (const stop of route.stops) {
+            if (stop.address && batchRes.has(stop.address)) {
+              const coords = batchRes.get(stop.address)
+              if (coords) {
+                stop.lat = coords[0]
+                stop.lng = coords[1]
+              }
+            }
+          }
+        }
+      }
+
+      // Save overrides so they persist in ReviewScreen
+      for (const route of newRoutes) {
+        for (const stop of route.stops) {
+          const cartNum = String(stop.cart_number || '').trim()
+          const update = updates.find(u => String(u.cart_number).trim() === cartNum)
+          if (update) {
+            await setEntryOverride(stop.name, {
+              lat: stop.lat,
+              lng: stop.lng,
+              address_text: stop.address || '',
+              time_from: stop.time_from || '',
+              time_to: stop.time_to || ''
+            })
+          }
+        }
+      }
+
+      // Reconstruct fake rows to send back to ReviewScreen
+      const fakeRows = newRoutes.flatMap(r => r.stops.map(s => ({
+        code: s.name,
+        name: s.name,
+        carts: s.carts,
+        trays: s.trays,
+        carriers: s.carriers,
+        boxes: s.boxes,
+        packages_h: s.packages_h,
+        cart_number: s.cart_number,
+        time_from: s.time_from,
+        time_to: s.time_to,
+        notes: s.notes,
+        address: s.address
+      })))
+
+      setReviewRows(fakeRows)
+      setResult(null)
+      await setRoutesResult(null)
+      alert(`עודכנו ${updatedCount} עגלות בסידור הנוכחי בהצלחה! מסך הלקוחות נפתח מחדש להמשך עבודה.`)
+
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [result])
 
   // ── Re-route: extract current stops from result and re-send ─────────────────
   const handleReroute = useCallback(async () => {
@@ -1404,15 +1511,32 @@ export function MainView() {
                   onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; handleFile(f) } }}
                 />
 
+                <input
+                  ref={addressUpdateRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; handleAddressUpdateFile(f) } }}
+                />
+
                 {result && (
                   <>
-                    {/* New file button — opens picker WITHOUT clearing result */}
-                    <button
-                      className="btn-ghost w-full text-sm"
-                      onClick={() => { setError(''); reuploadRef.current?.click() }}
-                    >
-                      📂 העלה קובץ חדש
-                    </button>
+                    <div className="flex gap-2">
+                      {/* New file button — opens picker WITHOUT clearing result */}
+                      <button
+                        className="btn-ghost flex-1 text-[11px] h-9 px-0"
+                        onClick={() => { setError(''); reuploadRef.current?.click() }}
+                      >
+                        📂 סידור חדש
+                      </button>
+
+                      <button
+                        className="btn-ghost flex-1 text-[11px] h-9 px-0 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+                        onClick={() => { setError(''); addressUpdateRef.current?.click() }}
+                      >
+                        📍 עדכון כתובות עגלות
+                      </button>
+                    </div>
 
                     {/* Re-route button */}
                     <button

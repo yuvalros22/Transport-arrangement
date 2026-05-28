@@ -8,6 +8,7 @@ import {
     cancelEntry, restoreEntry, getCancelledCodes,
 } from '@/lib/sessionStore'
 import { MapPicker } from './MapPicker'
+import { geocodeBatch } from '@/lib/geocode'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -583,6 +584,75 @@ export function ReviewScreen({ rows, onCancel, onBuildRoutes, numTrucks, setNumT
         onBuildRoutes(stops, numTrucks)
     }
 
+    const [isUpdating, setIsUpdating] = useState(false)
+    const handleAddressUpdateFile = async (file: File) => {
+        setIsUpdating(true)
+        const fd = new FormData()
+        fd.append('file', file)
+        try {
+            const r = await fetch('/api/parse-address-update', { method: 'POST', body: fd })
+            const d = await r.json()
+            if (!r.ok) throw new Error(d.error || 'שגיאה')
+            
+            const updates = d.rows as any[]
+            let updatedCount = 0
+
+            const addressesToGeocode = new Set<string>()
+            const nextEntries = [...entries]
+
+            for (const entry of nextEntries) {
+                const cartNum = String(entry.cart_number || '').trim()
+                if (!cartNum) continue
+                
+                const update = updates.find(u => String(u.cart_number).trim() === cartNum)
+                if (update) {
+                    updatedCount++
+                    if (update.address) {
+                        entry.address_text = update.address
+                        addressesToGeocode.add(update.address)
+                    }
+                    if (update.time_from) entry.time_from = update.time_from
+                    if (update.time_to) entry.time_to = update.time_to
+                }
+            }
+
+            if (addressesToGeocode.size > 0) {
+                const batchReq = Array.from(addressesToGeocode).map(a => ({ address: a }))
+                const batchRes = await geocodeBatch(batchReq)
+                
+                for (const entry of nextEntries) {
+                    if (entry.address_text && batchRes.has(entry.address_text)) {
+                        const coords = batchRes.get(entry.address_text)
+                        if (coords) {
+                            entry.lat = coords[0]
+                            entry.lng = coords[1]
+                            entry.needsAddress = false
+                        }
+                    }
+                }
+            }
+
+            // Save overrides and update state
+            for (const entry of nextEntries) {
+                // Save even if lat/lng are null, so the address text is preserved!
+                await setEntryOverride(entry.code, {
+                    lat: entry.lat,
+                    lng: entry.lng,
+                    address_text: entry.address_text,
+                    time_from: entry.time_from,
+                    time_to: entry.time_to
+                })
+            }
+            
+            setEntries(nextEntries)
+            alert(`עודכנו ${updatedCount} עגלות מהקובץ!`)
+        } catch (e: any) {
+            alert(e.message)
+        } finally {
+            setIsUpdating(false)
+        }
+    }
+
     // Derive three lists from single source
     const missingAddress = entries.filter(e => !e.isCancelled && e.needsAddress)
     const withAddress = entries.filter(e => !e.isCancelled && !e.needsAddress)
@@ -675,9 +745,16 @@ export function ReviewScreen({ rows, onCancel, onBuildRoutes, numTrucks, setNumT
 
                     {/* Footer */}
                     <div className="p-3 border-t border-border space-y-2">
-                        <button className="btn-ghost w-full text-sm" onClick={() => setShowManualModal(true)}>
-                            ➕ הוסף נקודה ידנית
-                        </button>
+                        <div className="flex gap-2">
+                            <button className="btn-ghost flex-1 text-sm" onClick={() => setShowManualModal(true)}>
+                                ➕ הוסף ידנית
+                            </button>
+                            <label className={`btn-ghost flex-1 text-sm cursor-pointer flex items-center justify-center gap-1 ${isUpdating ? 'opacity-50' : ''}`}>
+                                {isUpdating ? '⏳ מעדכן...' : '📍 עדכון מקובץ'}
+                                <input type="file" className="hidden" accept=".xlsx,.xls,.csv" disabled={isUpdating}
+                                    onChange={e => { const f = e.target.files?.[0]; if (f) { e.target.value = ''; handleAddressUpdateFile(f) } }} />
+                            </label>
+                        </div>
 
                         <div className="flex gap-3 items-center">
                             <label className="text-xs text-slate-500 shrink-0">משאיות:</label>

@@ -131,3 +131,52 @@ export function parseExcel(buffer: ArrayBuffer): ParsedRow[] {
   return stops
 }
 
+export interface AddressUpdateRow {
+  cart_number: string
+  address: string
+  time_from: string
+  time_to: string
+}
+
+export function parseAddressUpdateExcel(buffer: ArrayBuffer): AddressUpdateRow[] {
+  const wb = XLSX.read(buffer, { type: 'array', cellDates: false })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as unknown[][]
+  if (rows.length < 2) return []
+
+  const headers = (rows[0] as string[]).map(h => String(h ?? '').trim().toLowerCase())
+  const col: Record<string, number> = {}
+
+  headers.forEach((h, i) => {
+    const hClean = h.replace(/['"\s`_.-]/g, '')
+    if (col.cartNum === undefined && (hClean.includes('מסעגלה') || hClean.includes('מספרעגלה'))) col.cartNum = i
+    if (col.address === undefined && /כתובת|address|רחוב/.test(h)) col.address = i
+    if (col.from === undefined && /החל|from|time_from|מ.?שעה|משעה/.test(h)) col.from = i
+    if (col.to === undefined && /עד.?שעה|time_to|until|לשעה/.test(h)) col.to = i
+  })
+
+  if (col.cartNum === undefined) throw new Error('לא נמצאה עמודת "מספר עגלה" בקובץ')
+
+  const updates: AddressUpdateRow[] = []
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r] as unknown[]
+    const cartNum = clean(row[col.cartNum])
+    if (!cartNum) continue
+
+    const address = col.address !== undefined ? clean(row[col.address]) : ''
+    const time_from = col.from !== undefined ? parseTime(row[col.from]) : ''
+    const time_to = col.to !== undefined ? parseTime(row[col.to]) : ''
+
+    if (address || time_from || time_to) {
+      updates.push({
+        cart_number: cartNum,
+        address,
+        time_from,
+        time_to
+      })
+    }
+  }
+
+  return updates
+}
+
