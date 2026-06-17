@@ -598,7 +598,7 @@ export function ReviewScreen({ rows, onCancel, onBuildRoutes, numTrucks, setNumT
             let updatedCount = 0
 
             const addressesToGeocode = new Set<string>()
-            const nextEntries = [...entries]
+            const nextEntries = entries.map(e => ({ ...e }))
 
             for (const entry of nextEntries) {
                 const cartNum = String(entry.cart_number || '').trim()
@@ -613,6 +613,21 @@ export function ReviewScreen({ rows, onCancel, onBuildRoutes, numTrucks, setNumT
                     }
                     if (update.time_from) entry.time_from = update.time_from
                     if (update.time_to) entry.time_to = update.time_to
+                    
+                    let extraNotes = []
+                    if (update.contact) extraNotes.push(`איש קשר: ${update.contact}`)
+                    if (update.phone) extraNotes.push(`טלפון: ${update.phone}`)
+                    
+                    if (extraNotes.length > 0) {
+                        const extraStr = extraNotes.join(' | ')
+                        if (entry.notes) {
+                            if (!entry.notes.includes(extraStr)) {
+                                entry.notes = entry.notes + ' | ' + extraStr
+                            }
+                        } else {
+                            entry.notes = extraStr
+                        }
+                    }
                 }
             }
 
@@ -640,7 +655,8 @@ export function ReviewScreen({ rows, onCancel, onBuildRoutes, numTrucks, setNumT
                     lng: entry.lng,
                     address_text: entry.address_text,
                     time_from: entry.time_from,
-                    time_to: entry.time_to
+                    time_to: entry.time_to,
+                    notes: entry.notes
                 })
             }
             
