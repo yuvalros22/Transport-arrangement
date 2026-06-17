@@ -136,6 +136,8 @@ export interface AddressUpdateRow {
   address: string
   time_from: string
   time_to: string
+  contact?: string
+  phone?: string
 }
 
 export function parseAddressUpdateExcel(buffer: ArrayBuffer): AddressUpdateRow[] {
@@ -153,6 +155,8 @@ export function parseAddressUpdateExcel(buffer: ArrayBuffer): AddressUpdateRow[]
     if (col.address === undefined && /כתובת|address|רחוב/.test(h)) col.address = i
     if (col.from === undefined && /החל|from|time_from|מ.?שעה|משעה/.test(h)) col.from = i
     if (col.to === undefined && /עד.?שעה|time_to|until|לשעה/.test(h)) col.to = i
+    if (col.contact === undefined && /איש קשר|contact/.test(h)) col.contact = i
+    if (col.phone === undefined && /טלפון|phone|נייד/.test(h)) col.phone = i
   })
 
   if (col.cartNum === undefined) throw new Error('לא נמצאה עמודת "מספר עגלה" בקובץ')
@@ -166,13 +170,17 @@ export function parseAddressUpdateExcel(buffer: ArrayBuffer): AddressUpdateRow[]
     const address = col.address !== undefined ? clean(row[col.address]) : ''
     const time_from = col.from !== undefined ? parseTime(row[col.from]) : ''
     const time_to = col.to !== undefined ? parseTime(row[col.to]) : ''
+    const contact = col.contact !== undefined ? clean(row[col.contact]) : ''
+    const phone = col.phone !== undefined ? clean(row[col.phone]) : ''
 
-    if (address || time_from || time_to) {
+    if (address || time_from || time_to || contact || phone) {
       updates.push({
         cart_number: cartNum,
         address,
         time_from,
-        time_to
+        time_to,
+        contact,
+        phone
       })
     }
   }
