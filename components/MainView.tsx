@@ -17,7 +17,7 @@ function ColumnsView({
   routes,
   onDragStart, onDragOver, onDrop, onDragEnd,
   dragSrc, dragOverInfo,
-  allDrivers, onAssignDriver, onToggleNightRoute
+  allDrivers, onAssignDriver, onToggleNightRoute, onAddRoute, onDeleteRoute
 }: {
   routes: Route[]
   dragSrc: DragSrc | null
@@ -29,6 +29,8 @@ function ColumnsView({
   allDrivers: Driver[]
   onAssignDriver: (routeId: number, driverId: string) => void
   onToggleNightRoute: (routeId: number, isNight: boolean) => void
+  onAddRoute: () => void
+  onDeleteRoute: (routeId: number) => void
 }) {
   const hasWarn = (s: RouteStop) =>
     s.notes && (s.notes.includes('חובה') || s.notes.includes('מזומן') || s.notes.includes('⚠'))
@@ -69,6 +71,9 @@ function ColumnsView({
                   style={{ background: route.color + '25', color: route.color }}>
                   {route.direction}
                 </span>
+                {route.stops.length === 0 && (!route.pickups || route.pickups.length === 0) && (
+                  <button onClick={() => onDeleteRoute(route.id)} className="text-red-400/70 hover:text-red-400 transition-colors text-xs px-1" title="מחק קו ריק">✕</button>
+                )}
               </div>
               {/* Capacity bar */}
               <div className="h-1 rounded-full bg-white/10 overflow-hidden mb-1.5">
@@ -266,6 +271,20 @@ function ColumnsView({
           </div>
         )
       })}
+      
+      {/* Add new route button */}
+      <button
+        onClick={onAddRoute}
+        className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed shrink-0 transition-all hover:bg-white/5 active:scale-95"
+        style={{
+          width: 'clamp(220px, 20vw, 280px)',
+          borderColor: '#1e2d45',
+          color: '#475569'
+        }}
+      >
+        <div className="text-3xl mb-2">➕</div>
+        <div className="font-bold text-sm text-slate-400">הוסף קו חדש</div>
+      </button>
     </div>
   )
 }
@@ -542,7 +561,7 @@ function StopLine({ icon, label, muted }: { icon: string; label: string; muted?:
 // ─── Route card in sidebar ─────────────────────────────────────────────────────
 function RouteCard({
   route, open, active, onToggle,
-  dragSrc, onDragStart, onDragOver, onDrop, onDragEnd, onDeleteStop, onDeletePickup, dragOverInfo,
+  dragSrc, onDragStart, onDragOver, onDrop, onDragEnd, onDeleteStop, onDeletePickup, dragOverInfo, onDeleteRoute,
 }: {
   route: Route; open: boolean; active: boolean; onToggle: () => void
   dragSrc: DragSrc | null
@@ -556,6 +575,7 @@ function RouteCard({
   allDrivers: Driver[]
   onAssignDriver: (routeId: number, driverId: string) => void
   onToggleNightRoute: (routeId: number, isNight: boolean) => void
+  onDeleteRoute: (routeId: number) => void
 }) {
   const pct = Math.min(100, (route.total_carts / 18) * 100)
   const hasWarn = (s: RouteStop) =>
@@ -599,7 +619,14 @@ function RouteCard({
             ))
           })()}
         </div>
-
+        {route.stops.length === 0 && (!route.pickups || route.pickups.length === 0) && (
+          <button 
+            onClick={(e) => { e.stopPropagation(); onDeleteRoute(route.id) }} 
+            className="text-slate-500 hover:text-red-400 px-2" title="מחק קו ריק"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {/* Capacity bar */}
@@ -914,6 +941,36 @@ export function MainView() {
   const handleDragEnd = useCallback(() => {
     setDragSrc(null)
     setDragOver(null)
+  }, [])
+
+  const handleAddRoute = useCallback(() => {
+    if (!result) return
+    const maxId = result.routes.reduce((max, r) => Math.max(max, r.id), 0)
+    
+    const colors = ['#f43f5e', '#8b5cf6', '#0ea5e9', '#10b981', '#f59e0b', '#ec4899', '#6366f1', '#14b8a6']
+    const color = colors[maxId % colors.length]
+
+    const newRoute: Route = {
+      id: maxId + 1,
+      name: `קו חדש ${maxId + 1}`,
+      color: color,
+      direction: 'כללי',
+      stops: [],
+      pickups: [],
+      total_carts: 0,
+      distance_km: 0
+    }
+    setResult({ ...result, routes: [...result.routes, newRoute] })
+  }, [result])
+
+  const handleDeleteRoute = useCallback((routeId: number) => {
+    setResult(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        routes: prev.routes.filter(r => r.id !== routeId)
+      }
+    })
   }, [])
 
   // ── Core: call API and set routes result ───────────────────────────────────────
@@ -1346,6 +1403,8 @@ export function MainView() {
                 const updated = result.routes.map(r => r.id === routeId ? { ...r, isNightRoute: isNight } : r)
                 setResult({ ...result, routes: updated })
               }}
+              onAddRoute={handleAddRoute}
+              onDeleteRoute={handleDeleteRoute}
             />
           </div>
         )}
@@ -1508,6 +1567,11 @@ export function MainView() {
                       ○ הצג את כל הקווים
                     </button>
 
+                    {/* Add route button */}
+                    <button className="btn-ghost w-full text-xs py-1.5 mt-1 border border-dashed border-slate-600/50 hover:bg-white/5" onClick={handleAddRoute}>
+                      ➕ הוסף קו חדש
+                    </button>
+
                     {/* Route cards */}
                     {result.routes.map(route => (
                       <RouteCard
@@ -1534,6 +1598,7 @@ export function MainView() {
                           const updated = result.routes.map(r => r.id === routeId ? { ...r, isNightRoute: isNight } : r)
                           setResult({ ...result, routes: updated })
                         }}
+                        onDeleteRoute={handleDeleteRoute}
                       />
                     ))}
                   </>
