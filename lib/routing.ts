@@ -230,10 +230,9 @@ export function buildRoutes(stops: Stop[], numTrucks: number): Route[] {
     return a.distance_km - b.distance_km
   })
 
-  let nN = 1, nS = 1
   routes.forEach((r, i) => {
     r.id = i + 1
-    r.name = r.direction === 'צפון' ? `קו צפון ${nN++}` : `קו דרום ${nS++}`
+    r.name = `קו ${i + 1}`
   })
 
   return routes

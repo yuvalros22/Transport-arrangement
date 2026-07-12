@@ -11,26 +11,30 @@ import { getAllDrivers } from '@/lib/driverDb'
 import type { Driver } from '@/types'
 import { getSelectedPickupIdsArray, getRoutesResult, setRoutesResult, setEntryOverride, getOriginalRows, setOriginalRows } from '@/lib/sessionStore'
 import { geocodeBatch } from '@/lib/geocode'
+type DragSrc = { type: 'stop' | 'pickup' | 'route'; routeId: number; index: number }
 
 // ─── Columns (board) view ─────────────────────────────────────────────────────
 function ColumnsView({
   routes,
   onDragStart, onDragOver, onDrop, onDragEnd,
   dragSrc, dragOverInfo,
-  allDrivers, onAssignDriver, onToggleNightRoute, onAddRoute, onDeleteRoute
+  allDrivers, onAssignDriver, onToggleNightRoute, onAddRoute, onDeleteRoute,
+  onUpdateRouteName, onReorderRoute
 }: {
   routes: Route[]
   dragSrc: DragSrc | null
-  dragOverInfo: { type: 'stop' | 'pickup'; routeId: number; index: number } | null
-  onDragStart: (type: 'stop' | 'pickup', routeId: number, index: number) => void
-  onDragOver: (e: React.DragEvent, type: 'stop' | 'pickup', routeId: number, index: number) => void
-  onDrop: (type: 'stop' | 'pickup', toRouteId: number, toIndex: number) => void
+  dragOverInfo: { type: 'stop' | 'pickup' | 'route'; routeId: number; index: number } | null
+  onDragStart: (type: 'stop' | 'pickup' | 'route', routeId: number, index: number) => void
+  onDragOver: (e: React.DragEvent, type: 'stop' | 'pickup' | 'route', routeId: number, index: number) => void
+  onDrop: (type: 'stop' | 'pickup' | 'route', toRouteId: number, toIndex: number) => void
   onDragEnd: () => void
   allDrivers: Driver[]
   onAssignDriver: (routeId: number, driverId: string) => void
   onToggleNightRoute: (routeId: number, isNight: boolean) => void
   onAddRoute: () => void
   onDeleteRoute: (routeId: number) => void
+  onUpdateRouteName: (routeId: number, name: string) => void
+  onReorderRoute: (draggedRouteId: number, targetRouteId: number) => void
 }) {
   const hasWarn = (s: RouteStop) =>
     s.notes && (s.notes.includes('חובה') || s.notes.includes('מזומן') || s.notes.includes('⚠'))
@@ -38,35 +42,50 @@ function ColumnsView({
   return (
     <div className="flex gap-3 h-full overflow-x-auto overflow-y-hidden p-4" dir="rtl"
       style={{ scrollbarWidth: 'thin', scrollbarColor: '#1e2d45 transparent' }}>
-      {routes.map(route => {
+      {routes.map((route, routeIdx) => {
         const pct = Math.min(100, (route.total_carts / 18) * 100)
-        const isDraggingOver = dragSrc && dragOverInfo?.routeId === route.id
+        const isDraggingOverStopOrPickup = dragSrc && dragSrc.type !== 'route' && dragOverInfo?.routeId === route.id
+        const isDraggingOverRoute = dragSrc?.type === 'route' && dragOverInfo?.type === 'route' && dragOverInfo?.routeId === route.id
+        const isBeingDragged = dragSrc?.type === 'route' && dragSrc?.routeId === route.id
 
         return (
           <div
             key={route.id}
+            draggable
+            onDragStart={e => { e.stopPropagation(); onDragStart('route', route.id, routeIdx) }}
+            onDragOver={e => onDragOver(e, 'route', route.id, routeIdx)}
+            onDrop={e => {
+              e.preventDefault()
+              e.stopPropagation()
+              if (dragSrc?.type === 'stop') onDrop('stop', route.id, route.stops.length)
+              else if (dragSrc?.type === 'pickup') onDrop('pickup', route.id, route.pickups.length)
+              else if (dragSrc?.type === 'route') onReorderRoute(dragSrc.routeId, route.id)
+            }}
+            onDragEnd={onDragEnd}
             className="flex flex-col rounded-2xl overflow-hidden shrink-0 transition-all"
             style={{
               width: 'clamp(220px, 20vw, 280px)',
               background: '#0f1d30',
-              border: `1.5px solid ${isDraggingOver ? route.color : '#1e2d45'}`,
-              boxShadow: isDraggingOver ? `0 0 20px ${route.color}30` : undefined,
-            }}
-            onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
-            onDrop={e => {
-              e.preventDefault();
-              if (dragSrc?.type === 'stop') onDrop('stop', route.id, route.stops.length);
-              if (dragSrc?.type === 'pickup') onDrop('pickup', route.id, route.pickups.length);
+              border: `1.5px solid ${isDraggingOverStopOrPickup ? route.color : (isDraggingOverRoute ? '#4ade80' : '#1e2d45')}`,
+              boxShadow: isDraggingOverStopOrPickup ? `0 0 20px ${route.color}30` : undefined,
+              opacity: isBeingDragged ? 0.3 : 1,
+              cursor: dragSrc?.type === 'route' ? 'grabbing' : 'auto'
             }}
           >
             {/* Column header */}
             <div className="shrink-0 px-3 pt-3 pb-2"
               style={{ background: route.color + '18', borderBottom: `1px solid ${route.color}30` }}>
-              <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex items-center gap-2 mb-1.5" style={{ cursor: 'grab' }}>
                 <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: route.color }} />
-                <span className="font-black text-sm flex-1 truncate" style={{ color: route.color }}>
-                  {route.name}
-                </span>
+                <input
+                  type="text"
+                  value={route.name}
+                  onChange={e => onUpdateRouteName(route.id, e.target.value)}
+                  className="font-black text-sm flex-1 min-w-0 bg-transparent border-none outline-none focus:ring-1 focus:ring-white/20 rounded px-1 transition-all"
+                  style={{ color: route.color }}
+                  onClick={e => e.stopPropagation()}
+                  onMouseDown={e => e.stopPropagation()}
+                />
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                   style={{ background: route.color + '25', color: route.color }}>
                   {route.direction}
@@ -1405,6 +1424,20 @@ export function MainView() {
               }}
               onAddRoute={handleAddRoute}
               onDeleteRoute={handleDeleteRoute}
+              onUpdateRouteName={(routeId, name) => {
+                const updated = result.routes.map(r => r.id === routeId ? { ...r, name } : r)
+                setResult({ ...result, routes: updated })
+              }}
+              onReorderRoute={(draggedRouteId, targetRouteId) => {
+                if (draggedRouteId === targetRouteId) return
+                const draggedIdx = result.routes.findIndex(r => r.id === draggedRouteId)
+                const targetIdx = result.routes.findIndex(r => r.id === targetRouteId)
+                if (draggedIdx === -1 || targetIdx === -1) return
+                const updated = [...result.routes]
+                const [dragged] = updated.splice(draggedIdx, 1)
+                updated.splice(targetIdx, 0, dragged)
+                setResult({ ...result, routes: updated })
+              }}
             />
           </div>
         )}
@@ -1483,8 +1516,6 @@ export function MainView() {
                           const orig = await getOriginalRows()
                           if (orig) {
                             setReviewRows(orig)
-                            setResult(null)
-                            await setRoutesResult(null)
                           } else {
                             alert('לא נמצא קובץ הלקוחות המקורי. אנא העלה מחדש את סידור הבוקר ע"י לחיצה על "סידור חדש".')
                           }
