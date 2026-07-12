@@ -208,8 +208,8 @@ function ColumnsView({
                 <div
                   className="mx-2 mb-1 h-8 rounded-xl border border-dashed flex items-center justify-center text-[10px] transition-all"
                   style={{
-                    borderColor: isDraggingOver ? route.color : '#1e2d45',
-                    color: isDraggingOver ? route.color : '#475569',
+                    borderColor: isDraggingOverStopOrPickup ? route.color : '#1e2d45',
+                    color: isDraggingOverStopOrPickup ? route.color : '#475569',
                   }}
                   onDragOver={e => onDragOver(e, 'stop', route.id, route.stops.length)}
                   onDrop={e => { e.preventDefault(); onDrop('stop', route.id, route.stops.length) }}
@@ -404,7 +404,6 @@ function mergeIntoExistingRoutes(
 }
 
 // ─── Drag state types ─────────────────────────────────────────────────────────
-interface DragSrc { type: 'stop' | 'pickup'; routeId: number; index: number }
 
 // ─── Upload Zone ──────────────────────────────────────────────────────────────
 function UploadZone({ onFile, loading }: { onFile: (f: File) => void; loading: boolean }) {
