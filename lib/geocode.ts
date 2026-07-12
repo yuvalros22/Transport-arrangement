@@ -48,6 +48,28 @@ async function nominatim(q: string): Promise<[number, number] | null> {
   } catch { return null }
 }
 
+async function googleGeocode(q: string): Promise<[number, number] | null> {
+  try {
+    const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    if (!key) return null
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&key=${key}&region=il&language=iw`
+    const r = await fetch(url)
+    if (!r.ok) return null
+    const data = await r.json()
+    if (data.status === 'OK' && data.results.length > 0) {
+      const loc = data.results[0].geometry.location
+      return [loc.lat, loc.lng]
+    }
+    return null
+  } catch { return null }
+}
+
+async function externalGeocode(q: string): Promise<[number, number] | null> {
+  const gCoords = await googleGeocode(q)
+  if (gCoords) return gCoords
+  return await nominatim(q)
+}
+
 /** Return just the settlement part (text after first comma, or last meaningful word group) */
 function extractSettlement(address: string): string {
   // "שדרות האקליפטוס 18, בוסתן בגליל" → "בוסתן בגליל"
@@ -77,8 +99,8 @@ export async function geocode(address: string): Promise<[number, number] | null>
   // Try local dictionary first
   const local = lookupLocal(address)
   if (local) { cache.set(key, local); return local }
-  // Fall back to Nominatim
-  const coords = await nominatim(address + ', ישראל')
+  // Fall back to external
+  const coords = await externalGeocode(address + ', ישראל')
   if (coords) cache.set(key, coords)
   return coords
 }
@@ -117,7 +139,7 @@ export async function geocodeBatch(
     if (coords) { cache.set(norm, coords); coordsByNorm.set(norm, coords); continue }
 
     // ── Strategy 1: full address + ישראל ─────────────────────────────────
-    coords = await nominatim(original.trim() + ', ישראל')
+    coords = await externalGeocode(original.trim() + ', ישראל')
     await sleep(DELAY)
 
     // ── Strategy 2: extracted settlement ─────────────────────────────────
@@ -125,7 +147,7 @@ export async function geocodeBatch(
       const settlement = extractSettlement(original)
       if (normalise(settlement) !== norm) {
         // Also try local dictionary on extracted settlement
-        coords = lookupLocal(settlement) ?? await nominatim(settlement + ', ישראל')
+        coords = lookupLocal(settlement) ?? await externalGeocode(settlement + ', ישראל')
         if (!lookupLocal(settlement)) await sleep(DELAY)
       }
     }
@@ -134,14 +156,14 @@ export async function geocodeBatch(
     if (!coords && original.includes(',')) {
       const first = original.split(',')[0].trim()
       if (normalise(first) !== norm) {
-        coords = lookupLocal(first) ?? await nominatim(first + ', ישראל')
+        coords = lookupLocal(first) ?? await externalGeocode(first + ', ישראל')
         if (!lookupLocal(first)) await sleep(DELAY)
       }
     }
 
     // ── Strategy 4: raw (no country suffix) ──────────────────────────────
     if (!coords) {
-      coords = await nominatim(original.trim())
+      coords = await externalGeocode(original.trim())
       await sleep(DELAY)
     }
 
