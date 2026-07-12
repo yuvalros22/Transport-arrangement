@@ -7,7 +7,7 @@ export interface Stop {
   carriers?: number | string
   boxes?: number | string
   packages_h?: number | string
-  cart_number?: string
+  cart_number: string
   time_from: string
   time_to: string
   notes: string
@@ -130,7 +130,7 @@ export interface ReviewEntry {
   carriers?: number | string
   boxes?: number | string
   packages_h?: number | string
-  cart_number?: string
+  cart_number: string
   time_from: string
   time_to: string
   notes: string
