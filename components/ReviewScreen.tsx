@@ -8,7 +8,7 @@ import {
     cancelEntry, restoreEntry, getCancelledCodes,
 } from '@/lib/sessionStore'
 import { MapPicker } from './MapPicker'
-import { geocodeBatch } from '@/lib/geocode'
+import { geocodeBatch, geocode } from '@/lib/geocode'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -524,6 +524,19 @@ export function ReviewScreen({ rows, onCancel, onBuildRoutes, numTrucks, setNumT
 
     const handleSaveManual = async (data: Partial<ReviewEntry>) => {
         const code = `manual_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+        
+        let lat = null
+        let lng = null
+        const address_text = data.name || ''
+
+        if (address_text) {
+            const coords = await geocode(address_text)
+            if (coords) {
+                lat = coords[0]
+                lng = coords[1]
+            }
+        }
+
         const entry: ReviewEntry = {
             code,
             name: data.name || '',
@@ -536,13 +549,16 @@ export function ReviewScreen({ rows, onCancel, onBuildRoutes, numTrucks, setNumT
             time_from: data.time_from || '',
             time_to: data.time_to || '',
             notes: data.notes || '',
-            lat: null, lng: null, address_text: '', address_label: '',
-            isKnown: false, needsAddress: true, isManual: true, availableAddresses: [],
+            lat, lng, address_text, address_label: '',
+            isKnown: false, needsAddress: lat === null, isManual: true, availableAddresses: [],
         }
         await upsertManualEntry(entry)
         setEntries(prev => [...prev, entry])
         setShowManualModal(false)
-        setPickerFor(entry) // immediately open map picker for address
+        
+        if (lat === null) {
+            setPickerFor(entry) // immediately open map picker for address if failed
+        }
     }
 
     const handleRemoveManual = async (code: string) => {
