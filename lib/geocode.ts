@@ -57,7 +57,11 @@ async function googleGeocode(q: string): Promise<[number, number] | null> {
     if (!r.ok) return null
     const data = await r.json()
     if (data.status === 'OK' && data.results.length > 0) {
-      const loc = data.results[0].geometry.location
+      const result = data.results[0]
+      // Reject partial matches to avoid aggressive guessing on typos
+      if (result.partial_match) return null
+      
+      const loc = result.geometry.location
       return [loc.lat, loc.lng]
     }
     return null

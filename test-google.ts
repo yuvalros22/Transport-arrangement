@@ -1,0 +1,1 @@
+﻿async function test() { const r = await fetch('https://maps.googleapis.com/maps/api/geocode/json?address=' + encodeURIComponent('רחוב הרצל') + '&key=' + process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY + '&region=il&language=iw'); const data = await r.json(); console.log(JSON.stringify(data, null, 2)); } test();
