@@ -340,31 +340,58 @@ function mergeIntoExistingRoutes(
   const warnings: string[] = []
   const unassigned: any[] = []
 
+  const matchedStops = new Set<string>()
+
   for (const ns of newStops) {
     const newName = ns.name.trim().toLowerCase()
-    let found = false
-    outer: for (const route of routes) {
-      for (let i = 0; i < route.stops.length; i++) {
-        if (route.stops[i].name.trim().toLowerCase() === newName) {
-          route.stops[i] = {
-            ...route.stops[i],
-            carts: ns.carts ?? route.stops[i].carts,
-            trays: ns.trays,
-            carriers: ns.carriers,
-            boxes: ns.boxes,
-            packages_h: ns.packages_h,
-            time_from: ns.time_from || route.stops[i].time_from,
-            time_to: ns.time_to || route.stops[i].time_to,
-            notes: ns.notes !== undefined ? ns.notes : route.stops[i].notes,
-            cart_number: ns.cart_number || route.stops[i].cart_number,
+    const newCartNum = String(ns.cart_number || '').trim()
+    let foundRoute: Route | null = null
+    let foundIndex = -1
+
+    // Pass 1: Try to match by both name and cart_number
+    if (newCartNum) {
+      outer1: for (const route of routes) {
+        for (let i = 0; i < route.stops.length; i++) {
+          if (matchedStops.has(`${route.id}-${i}`)) continue
+          if (route.stops[i].name.trim().toLowerCase() === newName &&
+              String(route.stops[i].cart_number || '').trim() === newCartNum) {
+            foundRoute = route
+            foundIndex = i
+            break outer1
           }
-          found = true
-          break outer
         }
       }
     }
 
-    if (!found) {
+    // Pass 2: Fallback to match by name only (for stops that didn't have a cart number before)
+    if (!foundRoute) {
+      outer2: for (const route of routes) {
+        for (let i = 0; i < route.stops.length; i++) {
+          if (matchedStops.has(`${route.id}-${i}`)) continue
+          if (route.stops[i].name.trim().toLowerCase() === newName) {
+            foundRoute = route
+            foundIndex = i
+            break outer2
+          }
+        }
+      }
+    }
+
+    if (foundRoute && foundIndex !== -1) {
+      matchedStops.add(`${foundRoute.id}-${foundIndex}`)
+      foundRoute.stops[foundIndex] = {
+        ...foundRoute.stops[foundIndex],
+        carts: ns.carts ?? foundRoute.stops[foundIndex].carts,
+        trays: ns.trays,
+        carriers: ns.carriers,
+        boxes: ns.boxes,
+        packages_h: ns.packages_h,
+        time_from: ns.time_from || foundRoute.stops[foundIndex].time_from,
+        time_to: ns.time_to || foundRoute.stops[foundIndex].time_to,
+        notes: ns.notes !== undefined ? ns.notes : foundRoute.stops[foundIndex].notes,
+        cart_number: ns.cart_number || foundRoute.stops[foundIndex].cart_number,
+      }
+    } else {
       if (ns.lat && ns.lng) {
         let bestRoute: Route | null = null
         let bestDist = Infinity
