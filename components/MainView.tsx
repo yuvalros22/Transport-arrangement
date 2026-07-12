@@ -356,6 +356,7 @@ function mergeIntoExistingRoutes(
             time_from: ns.time_from || route.stops[i].time_from,
             time_to: ns.time_to || route.stops[i].time_to,
             notes: ns.notes !== undefined ? ns.notes : route.stops[i].notes,
+            cart_number: ns.cart_number || route.stops[i].cart_number,
           }
           found = true
           break outer
@@ -1121,6 +1122,7 @@ export function MainView() {
         name: s.name, address: s.address,
         carts: s.carts, trays: s.trays, carriers: s.carriers,
         boxes: s.boxes, packages_h: s.packages_h,
+        cart_number: s.cart_number,
         time_from: s.time_from, time_to: s.time_to,
         notes: s.notes, lat: s.lat, lng: s.lng,
       }))
