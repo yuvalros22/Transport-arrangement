@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Header
-  const hRow = sum.addRow(['קו', 'כיוון', 'עצירות', 'מגשים', 'מנשאים', 'ארגזים', 'אריזות ח.ריבוי', 'עגלות לחלוקה', 'עגלות לאיסוף', 'ק"מ'])
+  const hRow = sum.addRow(['קו', 'כיוון', 'עצירות', 'מגש 7', 'מנשא 18', 'BOX', 'אריזות ח.ריבוי', 'עגלות לחלוקה', 'עגלות לאיסוף', 'ק"מ'])
   hRow.eachCell(c => {
     c.font = { bold: true }
     c.alignment = { horizontal: 'center', readingOrder: 'rtl' }
@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
       ws.addRow([])
 
       // Column headers
-      const colHead = ws.addRow(['#', 'לקוח', 'כתובת', 'מגשים', 'מנשאים', 'ארגזים', 'אריזות ח.ריבוי', 'עגלות', 'שעות', 'הערות'])
+      const colHead = ws.addRow(['#', 'לקוח', 'כתובת', 'מגש 7', 'מנשא 18', 'BOX', 'אריזות ח.ריבוי', 'עגלות', 'שעות', 'הערות'])
       colHead.eachCell(c => {
         c.font = { bold: true }
         c.border = borderAll
@@ -182,6 +182,30 @@ export async function POST(req: NextRequest) {
         ])
         row.getCell(8).font = { bold: true } // carts bold
         row.eachCell({ includeEmpty: true }, c => c.border = borderAll)
+      })
+
+      // Totals row
+      const totalTrays = sumField(route, 'trays')
+      const totalCarriers = sumField(route, 'carriers')
+      const totalBoxes = sumField(route, 'boxes')
+      const totalPackagesH = sumField(route, 'packages_h')
+      const totalCarts = route.total_carts
+
+      const totRow = ws.addRow([
+        '',
+        'סה"כ',
+        '',
+        totalTrays || '',
+        totalCarriers || '',
+        totalBoxes || '',
+        totalPackagesH || '',
+        totalCarts || '',
+        '',
+        ''
+      ])
+      totRow.eachCell({ includeEmpty: true }, c => {
+        c.font = { bold: true }
+        c.border = borderAll
       })
 
       // Hagla end
@@ -237,27 +261,30 @@ export async function POST(req: NextRequest) {
     })
 
     formWs.columns = [
-      { key: 'order',   width: 5  },
-      { key: 'name',    width: 32 },
-      { key: 'trays',   width: 12 },
-      { key: 'carriers',width: 12 },
-      { key: 'boxes',   width: 12 },
-      { key: 'packages_h',width: 16},
-      { key: 'carts',   width: 12 },
-      { key: 'sign',    width: 25 },
+      { key: 'order',       width: 5  },
+      { key: 'name',        width: 32 },
+      { key: 'carts',       width: 12 },
+      { key: 'carts_left',  width: 25 },
+      { key: 'trays',       width: 12 },
+      { key: 'carriers',    width: 12 },
+      { key: 'boxes',       width: 12 },
+      { key: 'packages_h',  width: 16 },
+      { key: 'notes',       width: 25 },
+      { key: 'concessions', width: 12 },
+      { key: 'returns',     width: 12 },
     ]
 
     const nightText = route.isNightRoute ? `  ·  🌙 קו לילה` : ''
     const driverText = route.driver ? `נהג: ${route.driver.name} (משאית: ${route.driver.truck_number})` : 'ללא נהג'
     const titleText = `${route.name}${nightText}  ·  ${driverText}  ·  ${date}`
 
-    const fTitle = formWs.addRow([`טופס איסוף נהג  ·  ${titleText}`, '', '', '', '', '', '', ''])
+    const fTitle = formWs.addRow([`טופס איסוף נהג  ·  ${titleText}`, '', '', '', '', '', '', '', '', '', ''])
     fTitle.getCell(1).font = { bold: true, size: 14 }
     fTitle.height = 24
-    formWs.mergeCells(`A1:H1`)
+    formWs.mergeCells(`A1:K1`)
     formWs.addRow([])
 
-    const fHead = formWs.addRow(['#', 'לקוח', 'מגשים', 'מנשאים', 'ארגזים', 'אריזות ח.ריבוי', 'עגלות', 'חתימת לקוח/הערות'])
+    const fHead = formWs.addRow(['#', 'לקוח', 'עגלות', 'עגלות שנשארו אצל הלקוח', 'מגש 7', 'מנשא 18', 'BOX', 'אריזות ח.ריבוי', 'הערה', 'ויתורים', 'חזרות'])
     fHead.eachCell(c => {
       c.font = { bold: true }
       c.border = borderAll
@@ -268,7 +295,7 @@ export async function POST(req: NextRequest) {
       const row = formWs.addRow([
         s.cart_number || '',
         s.name,
-        '', '', '', '', '', '' // empty for driver to fill
+        '', '', '', '', '', '', '', '', '' // empty for driver to fill
       ])
       // add standard row height for writing
       row.height = 30
@@ -280,15 +307,15 @@ export async function POST(req: NextRequest) {
 
     if (route.pickups && route.pickups.length > 0) {
       formWs.addRow([])
-      const fpTitle = formWs.addRow(['איסופים מיוחדים', '', '', '', '', '', '', ''])
+      const fpTitle = formWs.addRow(['איסופים מיוחדים', '', '', '', '', '', '', '', '', '', ''])
       fpTitle.getCell(1).font = { bold: true, size: 12 }
-      formWs.mergeCells(`A${fpTitle.number}:H${fpTitle.number}`)
+      formWs.mergeCells(`A${fpTitle.number}:K${fpTitle.number}`)
 
       route.pickups.forEach((p) => {
         const row = formWs.addRow([
           '↩',
           p.name,
-          '', '', '', '', '', ''
+          '', '', '', '', '', '', '', '', ''
         ])
         row.height = 30
         row.eachCell({ includeEmpty: true }, c => {
@@ -298,8 +325,23 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    formWs.pageSetup.printArea = `A1:H${formWs.rowCount}`
+    formWs.pageSetup.printArea = `A1:K${formWs.rowCount}`
   }
+
+  // Global font formatting to Arial 13 (maintaining larger headers)
+  wb.worksheets.forEach(ws => {
+    ws.eachRow({ includeEmpty: true }, (row) => {
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        const currentFont = cell.font || {}
+        const currentSize = currentFont.size
+        cell.font = {
+          ...currentFont,
+          name: 'Arial',
+          size: (!currentSize || currentSize < 13) ? 13 : currentSize,
+        }
+      })
+    })
+  })
 
   const buffer = await wb.xlsx.writeBuffer()
   const filename = `קווים-${date.replace(/\//g, '-')}.xlsx`

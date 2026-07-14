@@ -187,15 +187,20 @@ function PickupCard({
 // ─── Edit / Add form ──────────────────────────────────────────────────────────
 
 function PickupForm({
-    initial, onSave, onClose,
+    initial, pendingPickups, onSave, onClose,
 }: {
     initial: PickupRecord
+    pendingPickups: PickupRecord[]
     onSave: (p: PickupRecord) => void
     onClose: () => void
 }) {
     const [form, setForm] = useState<PickupRecord>({ ...initial })
     const [pickerOpen, setPickerOpen] = useState(false)
     const set = (k: keyof PickupRecord, v: any) => setForm(p => ({ ...p, [k]: v }))
+
+    const hasOpenPickup = pendingPickups.some(
+        r => r.name.trim().toLowerCase() === form.name.trim().toLowerCase() && r.id !== form.id
+    )
 
     // ── Customer search ──────────────────────────────────────────────────────
     const [allCustomers, setAllCustomers] = useState<Customer[]>([])
@@ -306,6 +311,12 @@ function PickupForm({
                         {selectedCustomer && (
                             <div className="flex items-center gap-2 text-[11px] px-2 py-1 rounded-lg" style={{ background: '#10b98115', color: '#34d399' }}>
                                 ✅ לקוח קיים — {selectedCustomer.name}
+                            </div>
+                        )}
+                        {hasOpenPickup && (
+                            <div className="text-amber-400 text-xs mt-1.5 flex items-start gap-1 px-1 font-bold">
+                                <span>*</span>
+                                <span>ללקוח איסוף קיים במאגר "{form.name}"</span>
                             </div>
                         )}
                     </div>
@@ -428,6 +439,7 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
     const [todayStatus, setTodayStatus] = useState<Record<string, boolean | null>>({})
     const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending')
     const [historySearch, setHistorySearch] = useState('')
+    const [pendingSearch, setPendingSearch] = useState('')
 
     const reload = useCallback(async () => {
         const recs = await getAllPickupRecords()
@@ -503,6 +515,12 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
     }
 
     const pendingRecords = records.filter(r => !r.completions.some(c => c.done))
+    const filteredPending = pendingRecords.filter(r =>
+        r.name.toLowerCase().includes(pendingSearch.toLowerCase()) ||
+        (r.what_to_collect || '').toLowerCase().includes(pendingSearch.toLowerCase()) ||
+        (r.notes || '').toLowerCase().includes(pendingSearch.toLowerCase()) ||
+        (r.address_text || '').toLowerCase().includes(pendingSearch.toLowerCase())
+    )
     const historyItems = records.flatMap(r =>
         r.completions.filter(c => c.done).map(c => ({ record: r, date: c.date, note: c.note }))
     ).sort((a, b) => b.date.localeCompare(a.date))
@@ -571,6 +589,16 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
                             </div>
                         </div>
 
+                        {/* Search Bar */}
+                        <div className="p-3 pb-0 shrink-0" dir="rtl">
+                            <input
+                                className="input text-sm w-full"
+                                placeholder="חפש בממתינים לפי שם לקוח, פריט או הערות..."
+                                value={pendingSearch}
+                                onChange={e => setPendingSearch(e.target.value)}
+                            />
+                        </div>
+
                         {/* List */}
                         <div className="flex-1 overflow-y-auto p-3 space-y-2" dir="rtl">
                             {pendingRecords.length === 0 && (
@@ -581,7 +609,13 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
                                 </div>
                             )}
 
-                            {pendingRecords.map(r => (
+                            {pendingRecords.length > 0 && filteredPending.length === 0 && (
+                                <div className="text-center p-10 text-slate-500 text-sm">
+                                    לא נמצאו איסופים מתאימים לחיפוש
+                                </div>
+                            )}
+
+                            {filteredPending.map(r => (
                                 <PickupCard
                                     key={r.id}
                                     record={r}
@@ -674,6 +708,7 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
             {editing && (
                 <PickupForm
                     initial={editing}
+                    pendingPickups={pendingRecords}
                     onSave={handleSave}
                     onClose={() => setEditing(null)}
                 />
