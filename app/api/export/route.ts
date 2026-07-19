@@ -261,30 +261,44 @@ export async function POST(req: NextRequest) {
     })
 
     formWs.columns = [
-      { key: 'order',       width: 5  },
-      { key: 'name',        width: 32 },
-      { key: 'carts',       width: 12 },
-      { key: 'carts_left',  width: 25 },
-      { key: 'trays',       width: 12 },
-      { key: 'carriers',    width: 12 },
-      { key: 'boxes',       width: 12 },
-      { key: 'packages_h',  width: 16 },
-      { key: 'notes',       width: 25 },
-      { key: 'concessions', width: 12 },
-      { key: 'returns',     width: 12 },
+      { key: 'order',              width: 5  },
+      { key: 'name',               width: 32 },
+      { key: 'carts',              width: 12 },
+      { key: 'trays',              width: 12 },
+      { key: 'carriers',           width: 12 },
+      { key: 'boxes',              width: 12 },
+      { key: 'packages_h',         width: 16 },
+      { key: 'carts_left',         width: 16 },
+      { key: 'concessions_trays',  width: 15 },
+      { key: 'concessions_carriers',width: 15 },
+      { key: 'concessions_boxes',   width: 15 },
+      { key: 'returns',            width: 12 },
     ]
 
     const nightText = route.isNightRoute ? `  ·  🌙 קו לילה` : ''
     const driverText = route.driver ? `נהג: ${route.driver.name} (משאית: ${route.driver.truck_number})` : 'ללא נהג'
     const titleText = `${route.name}${nightText}  ·  ${driverText}  ·  ${date}`
 
-    const fTitle = formWs.addRow([`טופס איסוף נהג  ·  ${titleText}`, '', '', '', '', '', '', '', '', '', ''])
+    const fTitle = formWs.addRow([`טופס איסוף נהג  ·  ${titleText}`])
     fTitle.getCell(1).font = { bold: true, size: 14 }
     fTitle.height = 24
-    formWs.mergeCells(`A1:K1`)
+    formWs.mergeCells(`A1:L1`)
     formWs.addRow([])
 
-    const fHead = formWs.addRow(['#', 'לקוח', 'עגלות', 'עגלות שנשארו אצל הלקוח', 'מגש 7', 'מנשא 18', 'BOX', 'אריזות ח.ריבוי', 'הערה', 'ויתורים', 'חזרות'])
+    const fHead = formWs.addRow([
+      '#',
+      'לקוח',
+      'עגלות',
+      'מגש 7',
+      'מנשא 18',
+      'BOX',
+      'אריזות ח.ריבוי',
+      'עגלות שנשארו',
+      'ויתורים מגש 7',
+      'ויתורים מנשא 18',
+      'ויתורים BOX',
+      'חזרות'
+    ])
     fHead.eachCell(c => {
       c.font = { bold: true }
       c.border = borderAll
@@ -295,9 +309,8 @@ export async function POST(req: NextRequest) {
       const row = formWs.addRow([
         s.cart_number || '',
         s.name,
-        '', '', '', '', '', '', '', '', '' // empty for driver to fill
+        '', '', '', '', '', '', '', '', '', ''
       ])
-      // add standard row height for writing
       row.height = 30
       row.eachCell({ includeEmpty: true }, c => {
         c.border = borderAll
@@ -305,17 +318,19 @@ export async function POST(req: NextRequest) {
       })
     })
 
-    if (route.pickups && route.pickups.length > 0) {
-      formWs.addRow([])
-      const fpTitle = formWs.addRow(['איסופים מיוחדים', '', '', '', '', '', '', '', '', '', ''])
-      fpTitle.getCell(1).font = { bold: true, size: 12 }
-      formWs.mergeCells(`A${fpTitle.number}:K${fpTitle.number}`)
+    // Always render the Special Pickups ("איסופים מיוחדים") section header and divider
+    formWs.addRow([])
+    const fpTitle = formWs.addRow(['איסופים מיוחדים'])
+    fpTitle.getCell(1).font = { bold: true, size: 12 }
+    formWs.mergeCells(`A${fpTitle.number}:L${fpTitle.number}`)
 
+    // Render automatic pickups if they exist
+    if (route.pickups && route.pickups.length > 0) {
       route.pickups.forEach((p) => {
         const row = formWs.addRow([
           '↩',
           p.name,
-          '', '', '', '', '', '', '', '', ''
+          '', '', '', '', '', '', '', '', '', ''
         ])
         row.height = 30
         row.eachCell({ includeEmpty: true }, c => {
@@ -325,7 +340,43 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    formWs.pageSetup.printArea = `A1:K${formWs.rowCount}`
+    // Now calculate the empty padding rows to fill the remaining print page nicely
+    const titleAndHeaderHeight = 60
+    const stopHeight = 30
+    const pickupTitleHeight = 35 // divider (15) + header (20)
+    const pickupRowHeight = 30
+    
+    const totalContentHeight = titleAndHeaderHeight 
+      + route.stops.length * stopHeight 
+      + pickupTitleHeight 
+      + (route.pickups?.length || 0) * pickupRowHeight
+      
+    const pageHeightLimit = 660
+    const remainderHeight = totalContentHeight % pageHeightLimit
+    let padCount = 0
+    if (remainderHeight > 0) {
+      padCount = Math.floor((pageHeightLimit - remainderHeight) / pickupRowHeight)
+    }
+    // Always guarantee at least 4 empty rows for manual entry
+    if (padCount < 4) {
+      padCount += 4
+    }
+
+    // Render empty padding rows under the Special Pickups section
+    for (let i = 0; i < padCount; i++) {
+      const row = formWs.addRow([
+        '↩', // Render the special pickup icon so they match
+        '',  // Empty client name
+        '', '', '', '', '', '', '', '', '', ''
+      ])
+      row.height = 30
+      row.eachCell({ includeEmpty: true }, c => {
+        c.border = borderAll
+        c.alignment = { vertical: 'middle' }
+      })
+    }
+
+    formWs.pageSetup.printArea = `A1:L${formWs.rowCount}`
   }
 
   // Global font formatting to Arial 13 (maintaining larger headers)

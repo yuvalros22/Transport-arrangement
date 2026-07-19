@@ -379,17 +379,24 @@ function mergeIntoExistingRoutes(
 
     if (foundRoute && foundIndex !== -1) {
       matchedStops.add(`${foundRoute.id}-${foundIndex}`)
+      const oldStop = foundRoute.stops[foundIndex]
+      const merged_time_from = ns.time_from || oldStop.time_from || ''
+      const merged_time_to = ns.time_to || oldStop.time_to || ''
+      const tw = merged_time_from && merged_time_to ? `${merged_time_from}–${merged_time_to}`
+        : merged_time_from ? `מ-${merged_time_from}` : merged_time_to ? `עד ${merged_time_to}` : ''
+
       foundRoute.stops[foundIndex] = {
-        ...foundRoute.stops[foundIndex],
-        carts: ns.carts ?? foundRoute.stops[foundIndex].carts,
+        ...oldStop,
+        carts: ns.carts ?? oldStop.carts,
         trays: ns.trays,
         carriers: ns.carriers,
         boxes: ns.boxes,
         packages_h: ns.packages_h,
-        time_from: ns.time_from || foundRoute.stops[foundIndex].time_from,
-        time_to: ns.time_to || foundRoute.stops[foundIndex].time_to,
-        notes: ns.notes !== undefined ? ns.notes : foundRoute.stops[foundIndex].notes,
-        cart_number: ns.cart_number || foundRoute.stops[foundIndex].cart_number,
+        time_from: merged_time_from,
+        time_to: merged_time_to,
+        time_window: tw,
+        notes: ns.notes !== undefined ? ns.notes : oldStop.notes,
+        cart_number: ns.cart_number || oldStop.cart_number,
       }
     } else {
       if (ns.lat && ns.lng) {

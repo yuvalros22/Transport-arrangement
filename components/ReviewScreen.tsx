@@ -467,6 +467,7 @@ interface Props {
 }
 
 export function ReviewScreen({ rows, onCancel, onBuildRoutes, numTrucks, setNumTrucks }: Props) {
+    console.log('ReviewScreen component rendered with rows prop:', rows)
     const [entries, setEntries] = useState<ReviewEntry[]>([])
     const [pickerFor, setPickerFor] = useState<ReviewEntry | null>(null)
     const [showManualModal, setShowManualModal] = useState(false)
@@ -612,6 +613,10 @@ export function ReviewScreen({ rows, onCancel, onBuildRoutes, numTrucks, setNumT
             
             const updates = d.rows as any[]
             let updatedCount = 0
+
+            console.log('--- DEBUG ADDRESS UPDATE ---')
+            console.log('nextEntries in system:', entries.map(e => ({ name: e.name, cart_number: e.cart_number })))
+            console.log('updates parsed from Excel:', updates.map(u => ({ cart_number: u.cart_number, address: u.address })))
 
             const addressesToGeocode = new Set<string>()
             const nextEntries = entries.map(e => ({ ...e }))
