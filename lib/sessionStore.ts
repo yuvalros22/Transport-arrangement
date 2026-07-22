@@ -142,6 +142,17 @@ export async function setPickupSelected(id: string, selected: boolean) {
     await saveSession(s)
 }
 
+export async function setMultiplePickupsSelected(idsToSet: string[], selected: boolean) {
+    const s = await loadSession()
+    const ids = new Set(s.selectedPickupIds || [])
+    for (const id of idsToSet) {
+        if (selected) ids.add(id)
+        else ids.delete(id)
+    }
+    s.selectedPickupIds = Array.from(ids)
+    await saveSession(s)
+}
+
 export async function isPickupSelected(id: string): Promise<boolean> {
     return (await loadSession()).selectedPickupIds.includes(id)
 }

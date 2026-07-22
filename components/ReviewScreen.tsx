@@ -27,7 +27,18 @@ async function buildEntries(rows: ParsedRow[]): Promise<ReviewEntry[]> {
         const match = await findCustomer(row.code, row.name)
         const customer = match?.customer ?? null
         const dbCode = customer?.code ?? row.code
-        const override = overrides[row.code] || overrides[dbCode] || overrides[row.name]
+
+        // Create a unique composite key combining customer code and cart number if present
+        const cartNum = String(row.cart_number || '').trim()
+        const cartSuffix = cartNum ? `_cart_${cartNum}` : ''
+
+        const rowKey = `${row.code}${cartSuffix}`
+        const dbCodeKey = `${dbCode}${cartSuffix}`
+        const nameKey = `${row.name}${cartSuffix}`
+
+        // Try to look up cart-specific override first, fallback to general customer override
+        const override = overrides[rowKey] || overrides[dbCodeKey] || overrides[nameKey] ||
+                         overrides[row.code] || overrides[dbCode] || overrides[row.name]
 
         let lat: number | null = null
         let lng: number | null = null
@@ -48,7 +59,7 @@ async function buildEntries(rows: ParsedRow[]): Promise<ReviewEntry[]> {
         }
 
         return {
-            code: dbCode,
+            code: dbCodeKey, // Use the composite key as the unique entry code
             name: row.name,
             carts: row.carts,
             trays: row.trays,
@@ -63,7 +74,7 @@ async function buildEntries(rows: ParsedRow[]): Promise<ReviewEntry[]> {
             isKnown: !!customer,
             needsAddress: lat === null,
             isManual: false,
-            isCancelled: cancelled.has(dbCode),
+            isCancelled: cancelled.has(dbCodeKey) || cancelled.has(dbCode), // Cancelled either specifically or generally
             availableAddresses,
         }
     }))

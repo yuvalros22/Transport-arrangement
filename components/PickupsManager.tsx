@@ -6,7 +6,7 @@ import {
     newPickupRecordId, markPickupDone, getTodayCompletion,
     getRecentCompletions, unmarkPickupDone,
 } from '@/lib/pickupDb'
-import { getSelectedPickupIds, setPickupSelected } from '@/lib/sessionStore'
+import { getSelectedPickupIds, setPickupSelected, setMultiplePickupsSelected } from '@/lib/sessionStore'
 import { getAllCustomers } from '@/lib/customerDb'
 import { MapPicker } from './MapPicker'
 
@@ -532,6 +532,32 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
     )
 
     const selectedCount = pendingRecords.filter(r => selectedIds.has(r.id) && r.lat !== null).length
+
+    const handleSelectAll = async () => {
+        const idsToSelect = filteredPending.map(r => r.id)
+        if (idsToSelect.length === 0) return
+        await setMultiplePickupsSelected(idsToSelect, true)
+        setSelectedIds(prev => {
+            const s = new Set(prev)
+            for (const id of idsToSelect) {
+                s.add(id)
+            }
+            return s
+        })
+    }
+
+    const handleSelectNone = async () => {
+        const idsToDeselect = filteredPending.map(r => r.id)
+        if (idsToDeselect.length === 0) return
+        await setMultiplePickupsSelected(idsToDeselect, false)
+        setSelectedIds(prev => {
+            const s = new Set(prev)
+            for (const id of idsToDeselect) {
+                s.delete(id)
+            }
+            return s
+        })
+    }
     const doneToday = Object.values(todayStatus).filter(v => v === true).length
     const notDoneToday = Object.values(todayStatus).filter(v => v === false).length
 
@@ -598,6 +624,29 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
                                 onChange={e => setPendingSearch(e.target.value)}
                             />
                         </div>
+
+                        {/* Select All / None controls */}
+                        {pendingRecords.length > 0 && (
+                            <div className="px-3 pt-2 pb-1 flex justify-between gap-2 shrink-0" dir="rtl">
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handleSelectAll}
+                                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-purple-500/30 text-purple-300 hover:bg-purple-500/10 transition-colors"
+                                    >
+                                        ✓ בחר הכל
+                                    </button>
+                                    <button
+                                        onClick={handleSelectNone}
+                                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-slate-700 text-slate-400 hover:bg-slate-800 transition-colors"
+                                    >
+                                        ✕ בחר כלום
+                                    </button>
+                                </div>
+                                <div className="text-[10px] text-slate-500 self-center">
+                                    סומנו {selectedCount} מתוך {pendingRecords.length}
+                                </div>
+                            </div>
+                        )}
 
                         {/* List */}
                         <div className="flex-1 overflow-y-auto p-3 space-y-2" dir="rtl">

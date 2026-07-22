@@ -1175,18 +1175,60 @@ export function MainView() {
       const pickupsList = await getAllPickupRecords()
       const selectedIds = await getSelectedPickupIdsArray()
 
-      const newRoutes = result.routes.map(r => ({ ...r, pickups: [] as any[] }))
+      // 1. Create a deep copy of the existing routes to avoid direct mutation
+      const newRoutes = result.routes.map(r => ({
+        ...r,
+        pickups: r.pickups ? r.pickups.map(p => ({ ...p })) : []
+      }))
 
-      // Only assign selected pickups that have lat/lng
-      for (const p of pickupsList) {
-        if (!selectedIds.includes(p.id)) continue;
-        if (!p.lat || !p.lng) continue;
+      // 2. Identify which pickup IDs are already assigned to routes
+      const assignedIds = new Set<string>()
+      for (const r of newRoutes) {
+        for (const p of r.pickups) {
+          assignedIds.add(p.id)
+        }
+      }
 
-        let bestR = newRoutes[0]
+      // 3. For already assigned pickups: update their details or remove them if no longer selected
+      for (const r of newRoutes) {
+        r.pickups = r.pickups
+          .filter(p => selectedIds.includes(p.id)) // Remove if unselected
+          .map(p => {
+            const updated = pickupsList.find(item => item.id === p.id)
+            if (updated) {
+              // Update all fields from the database, preserving the existing position
+              return {
+                ...p,
+                name: updated.name,
+                address_text: updated.address_text,
+                lat: updated.lat ?? p.lat,
+                lng: updated.lng ?? p.lng,
+                what_to_collect: updated.what_to_collect,
+                phone: updated.phone,
+                notes: updated.notes,
+                carts: updated.carts,
+                is_urgent: updated.is_urgent
+              }
+            }
+            return p
+          })
+      }
+
+      // 4. Identify which selected pickups are NEW (not currently assigned)
+      const newSelectedPickups = pickupsList.filter(
+        p => selectedIds.includes(p.id) && !assignedIds.has(p.id)
+      )
+
+      // 5. Assign new pickups to the best routes
+      for (const p of newSelectedPickups) {
+        if (!p.lat || !p.lng) continue
+
+        let bestR: typeof newRoutes[0] | null = null
         let bestDist = Infinity
 
         const pDir = (p.lat ?? 32.38639) >= 32.38639 ? 'צפון' : 'דרום'
 
+        // Search in routes of the same direction
         for (const route of newRoutes) {
           if (route.direction !== pDir) continue
           let minDist = Infinity
@@ -1201,7 +1243,7 @@ export function MainView() {
           }
         }
 
-        // Fallback if no routes in that direction
+        // Fallback if no routes found in that direction
         if (!bestR) {
           for (const route of newRoutes) {
             let minDist = Infinity
@@ -1216,8 +1258,20 @@ export function MainView() {
             }
           }
         }
+
         if (bestR) {
-          bestR.pickups.push(p)
+          bestR.pickups.push({
+            id: p.id,
+            name: p.name,
+            address_text: p.address_text,
+            lat: p.lat!,
+            lng: p.lng!,
+            what_to_collect: p.what_to_collect,
+            phone: p.phone,
+            notes: p.notes,
+            carts: p.carts,
+            order: bestR.pickups.length
+          })
         }
       }
 
