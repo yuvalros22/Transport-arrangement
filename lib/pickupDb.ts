@@ -48,16 +48,18 @@ export async function upsertPickupRecord(record: PickupRecord) {
         notes: record.notes || null,
         carts: record.carts || null,
         is_urgent: record.is_urgent || false,
+        updated_at: new Date().toISOString(),
     }
 
     const { error } = await supabase.from('pickups').upsert(payload)
     if (error) {
-        console.error('Error saving pickup (will try fallback without carts):', error)
+        console.error('Error saving pickup (will try fallback without carts/dates):', error)
         try {
             delete (payload as any).carts
             delete (payload as any).phone
             delete (payload as any).notes
             delete (payload as any).is_urgent
+            delete (payload as any).updated_at
             await supabase.from('pickups').upsert(payload)
         } catch (e) {
             console.error('Exception in pickup fallback:', e)

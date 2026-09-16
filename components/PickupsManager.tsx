@@ -16,6 +16,19 @@ function todayStr(): string {
     return new Date().toISOString().slice(0, 10)
 }
 
+function formatDate(isoString?: string): string {
+    if (!isoString) return '—'
+    try {
+        const d = new Date(isoString)
+        if (isNaN(d.getTime())) return '—'
+        const datePart = d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        const timePart = d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
+        return `${datePart} בשעה ${timePart}`
+    } catch {
+        return '—'
+    }
+}
+
 function emptyRecord(): PickupRecord {
     return {
         id: newPickupRecordId(),
@@ -110,7 +123,12 @@ function PickupCard({
                     <div className="text-[10px] text-slate-500 truncate">
                         📦 {record.what_to_collect || '—'}
                         {record.carts ? <span className="mr-2 text-amber-300 font-bold">🛒 {record.carts} עגלות</span> : null}
-                        {hasAddress && <span className="mr-2 text-slate-700">· {record.address_text}</span>}
+                        {hasAddress && <span className="mr-2 text-slate-200 font-medium">· {record.address_text}</span>}
+                    </div>
+                    <div className="text-[9px] text-slate-400 mt-0.5 flex gap-2 flex-wrap">
+                        <span>📅 הוסף: {formatDate(record.created_at)}</span>
+                        <span>·</span>
+                        <span>🔄 עודכן: {formatDate(record.updated_at || record.created_at)}</span>
                     </div>
                 </div>
 
@@ -157,6 +175,17 @@ function PickupCard({
                     {record.notes && (
                         <div className="text-[10px] text-slate-500">💬 {record.notes}</div>
                     )}
+
+                    <div className="grid grid-cols-2 gap-2 py-1.5 border-y border-white/5 text-[10px] text-slate-400" dir="rtl">
+                        <div>
+                            <span className="text-slate-600 font-bold">📅 תאריך הוספה:</span>{' '}
+                            {formatDate(record.created_at)}
+                        </div>
+                        <div>
+                            <span className="text-slate-600 font-bold">🔄 עדכון אחרון:</span>{' '}
+                            {formatDate(record.updated_at || record.created_at)}
+                        </div>
+                    </div>
 
                     {/* Completion history */}
                     <div>
@@ -399,6 +428,19 @@ function PickupForm({
                             </div>
                         </div>
                     </div>
+
+                    {initial.created_at && (
+                        <div className="rounded-xl border border-border p-3 space-y-1 text-[11px] text-slate-400" style={{ background: '#ffffff02', borderColor: '#1e2d45' }} dir="rtl">
+                            <div>
+                                <span className="text-slate-600 font-bold">📅 תאריך הוספה:</span>{' '}
+                                {formatDate(initial.created_at)}
+                            </div>
+                            <div>
+                                <span className="text-slate-600 font-bold">🔄 עדכון אחרון:</span>{' '}
+                                {formatDate(initial.updated_at || initial.created_at)}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div className="p-4 border-t border-border space-y-2 shrink-0">
