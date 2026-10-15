@@ -36,8 +36,14 @@ export async function getPickupRecord(id: string): Promise<PickupRecord | null> 
     }
 }
 
+let hasUpdatedAtColumn: boolean | null = null
+
 export async function upsertPickupRecord(record: PickupRecord) {
-    const payload = {
+    const cartsVal = (record.carts !== '' && record.carts !== undefined && record.carts !== null && !isNaN(Number(record.carts)))
+        ? Number(record.carts)
+        : null
+
+    const basePayload = {
         id: record.id,
         name: record.name,
         address_text: record.address_text,
@@ -46,24 +52,43 @@ export async function upsertPickupRecord(record: PickupRecord) {
         what_to_collect: record.what_to_collect,
         phone: record.phone || null,
         notes: record.notes || null,
-        carts: record.carts || null,
+        carts: cartsVal,
         is_urgent: record.is_urgent || false,
+    }
+
+    // If we already know updated_at doesn't exist in Supabase schema, save directly without it
+    if (hasUpdatedAtColumn === false) {
+        const { error } = await supabase.from('pickups').upsert(basePayload)
+        if (error) {
+            console.error('Error saving pickup record:', error)
+            throw error
+        }
+        return
+    }
+
+    const payloadWithUpdate = {
+        ...basePayload,
         updated_at: new Date().toISOString(),
     }
 
-    const { error } = await supabase.from('pickups').upsert(payload)
+    const { error } = await supabase.from('pickups').upsert(payloadWithUpdate)
     if (error) {
-        console.error('Error saving pickup (will try fallback without carts/dates):', error)
-        try {
-            delete (payload as any).carts
-            delete (payload as any).phone
-            delete (payload as any).notes
-            delete (payload as any).is_urgent
-            delete (payload as any).updated_at
-            await supabase.from('pickups').upsert(payload)
-        } catch (e) {
-            console.error('Exception in pickup fallback:', e)
+        // If column 'updated_at' is missing in Supabase schema, cache this and retry with basePayload
+        if (error.message?.includes('updated_at') || error.code === 'PGRST204') {
+            hasUpdatedAtColumn = false
+            console.warn("Supabase 'pickups' table does not have 'updated_at' column. Saving without updated_at.")
+            const { error: retryErr } = await supabase.from('pickups').upsert(basePayload)
+            if (retryErr) {
+                console.error('Error saving pickup record in retry:', retryErr)
+                throw retryErr
+            }
+            return
         }
+
+        console.error('Error saving pickup:', error)
+        throw error
+    } else {
+        hasUpdatedAtColumn = true
     }
 }
 
