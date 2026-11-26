@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
     const pickups: PickupRecord[] = body.pickups ?? []
     const selectedIds: string[] = body.selectedPickupIds ?? []
     const numTrucks = Math.max(1, parseInt(body.numTrucks) || 7)
+    const rawDate: string | undefined = body.date
 
     if (!stops.length) {
       return NextResponse.json({ error: 'לא נשלחו עצירות' }, { status: 400 })
@@ -32,12 +33,22 @@ export async function POST(req: NextRequest) {
       routes = assignPickups(routes, selectedPickups)
     }
 
+    let formattedDate: string
+    if (rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+      const [y, m, d] = rawDate.split('-')
+      formattedDate = `${d}/${m}/${y}`
+    } else if (rawDate) {
+      formattedDate = rawDate
+    } else {
+      formattedDate = new Date().toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem' })
+    }
+
     return NextResponse.json({
       routes,
       total_customers: stops.length,
       total_carts: Math.round(stops.reduce((a, s) => a + Number(s.carts), 0) * 10) / 10,
       no_address: noAddress,
-      date: new Date().toLocaleDateString('he-IL'),
+      date: formattedDate,
     })
   } catch (e: any) {
     console.error(e)

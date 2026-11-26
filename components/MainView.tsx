@@ -6,10 +6,22 @@ import { ReviewScreen } from './ReviewScreen'
 import { CustomerManager } from './CustomerManager'
 import { PickupsManager } from './PickupsManager'
 import { DriversManager } from './DriversManager'
+import { DateNavigator } from './DateNavigator'
 import { getAllPickupRecords } from '@/lib/pickupDb'
 import { getAllDrivers } from '@/lib/driverDb'
 import type { Driver } from '@/types'
-import { getSelectedPickupIdsArray, getRoutesResult, setRoutesResult, setEntryOverride, getOriginalRows, setOriginalRows } from '@/lib/sessionStore'
+import {
+  getSelectedPickupIdsArray,
+  getRoutesResult,
+  setRoutesResult,
+  getOriginalRows,
+  setOriginalRows,
+  getIsraelTodayStr,
+  setActiveSessionDate,
+  formatDateHeDisplay,
+  formatDayOfWeekHe,
+  clearDailySession,
+} from '@/lib/sessionStore'
 import { geocodeBatch } from '@/lib/geocode'
 type DragSrc = { type: 'stop' | 'pickup' | 'route'; routeId: number; index: number }
 
@@ -19,7 +31,8 @@ function ColumnsView({
   onDragStart, onDragOver, onDrop, onDragEnd,
   dragSrc, dragOverInfo,
   allDrivers, onAssignDriver, onToggleNightRoute, onAddRoute, onDeleteRoute,
-  onUpdateRouteName, onReorderRoute
+  onUpdateRouteName, onReorderRoute,
+  readOnly = false,
 }: {
   routes: Route[]
   dragSrc: DragSrc | null
@@ -35,6 +48,7 @@ function ColumnsView({
   onDeleteRoute: (routeId: number) => void
   onUpdateRouteName: (routeId: number, name: string) => void
   onReorderRoute: (draggedRouteId: number, targetRouteId: number) => void
+  readOnly?: boolean
 }) {
   const hasWarn = (s: RouteStop) =>
     s.notes && (s.notes.includes('חובה') || s.notes.includes('מזומן') || s.notes.includes('⚠'))
@@ -51,10 +65,11 @@ function ColumnsView({
         return (
           <div
             key={route.id}
-            draggable
-            onDragStart={e => { e.stopPropagation(); onDragStart('route', route.id, routeIdx) }}
-            onDragOver={e => onDragOver(e, 'route', route.id, routeIdx)}
+            draggable={!readOnly}
+            onDragStart={e => { if (readOnly) return; e.stopPropagation(); onDragStart('route', route.id, routeIdx) }}
+            onDragOver={e => { if (readOnly) return; onDragOver(e, 'route', route.id, routeIdx) }}
             onDrop={e => {
+              if (readOnly) return
               e.preventDefault()
               e.stopPropagation()
               if (dragSrc?.type === 'stop') onDrop('stop', route.id, route.stops.length)
@@ -75,12 +90,13 @@ function ColumnsView({
             {/* Column header */}
             <div className="shrink-0 px-3 pt-3 pb-2"
               style={{ background: route.color + '18', borderBottom: `1px solid ${route.color}30` }}>
-              <div className="flex items-center gap-2 mb-1.5" style={{ cursor: 'grab' }}>
+              <div className="flex items-center gap-2 mb-1.5" style={{ cursor: readOnly ? 'default' : 'grab' }}>
                 <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: route.color }} />
                 <input
                   type="text"
                   value={route.name}
-                  onChange={e => onUpdateRouteName(route.id, e.target.value)}
+                  readOnly={readOnly}
+                  onChange={e => !readOnly && onUpdateRouteName(route.id, e.target.value)}
                   className="font-black text-sm flex-1 min-w-0 bg-transparent border-none outline-none focus:ring-1 focus:ring-white/20 rounded px-1 transition-all"
                   style={{ color: route.color }}
                   onClick={e => e.stopPropagation()}
@@ -90,7 +106,7 @@ function ColumnsView({
                   style={{ background: route.color + '25', color: route.color }}>
                   {route.direction}
                 </span>
-                {route.stops.length === 0 && (!route.pickups || route.pickups.length === 0) && (
+                {!readOnly && route.stops.length === 0 && (!route.pickups || route.pickups.length === 0) && (
                   <button onClick={() => onDeleteRoute(route.id)} className="text-red-400/70 hover:text-red-400 transition-colors text-xs px-1" title="מחק קו ריק">✕</button>
                 )}
               </div>
@@ -111,9 +127,10 @@ function ColumnsView({
               <div className="space-y-1.5 p-2 rounded-xl bg-black/20 border border-white/5">
                 <div className="flex items-center justify-between gap-2">
                   <select
-                    className="input text-[11px] py-1 bg-transparent border-slate-700/50 w-full text-slate-200"
+                    className="input text-[11px] py-1 bg-transparent border-slate-700/50 w-full text-slate-200 disabled:opacity-60 disabled:cursor-not-allowed"
                     value={route.driver?.id || ''}
-                    onChange={e => onAssignDriver(route.id, e.target.value)}
+                    disabled={readOnly}
+                    onChange={e => !readOnly && onAssignDriver(route.id, e.target.value)}
                   >
                     <option className="bg-[#0f1d30] text-slate-200" value="">👨‍✈️ שיבוץ נהג...</option>
                     {allDrivers.map(d => (
@@ -121,12 +138,13 @@ function ColumnsView({
                     ))}
                   </select>
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer w-max pl-1">
+                <label className={`flex items-center gap-2 w-max pl-1 ${readOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                   <input
                     type="checkbox"
+                    disabled={readOnly}
                     className="w-3.5 h-3.5 rounded border-slate-600 bg-transparent text-purple-500 focus:ring-purple-500"
                     checked={!!route.isNightRoute}
-                    onChange={e => onToggleNightRoute(route.id, e.target.checked)}
+                    onChange={e => !readOnly && onToggleNightRoute(route.id, e.target.checked)}
                   />
                   <span className="text-[10px] font-bold text-slate-300">🌙 קו לילה</span>
                 </label>
@@ -153,17 +171,17 @@ function ColumnsView({
                         style={{ background: route.color }} />
                     )}
                     <div
-                      draggable
-                      onDragStart={e => { e.stopPropagation(); onDragStart('stop', route.id, i) }}
-                      onDragOver={e => onDragOver(e, 'stop', route.id, i)}
-                      onDrop={e => { e.preventDefault(); e.stopPropagation(); onDrop('stop', route.id, i) }}
+                      draggable={!readOnly}
+                      onDragStart={e => { if (readOnly) return; e.stopPropagation(); onDragStart('stop', route.id, i) }}
+                      onDragOver={e => { if (readOnly) return; onDragOver(e, 'stop', route.id, i) }}
+                      onDrop={e => { if (readOnly) return; e.preventDefault(); e.stopPropagation(); onDrop('stop', route.id, i) }}
                       onDragEnd={onDragEnd}
                       className="mx-2 mb-1 rounded-xl px-2.5 py-2 transition-all group"
                       style={{
                         background: isBeingDragged ? 'transparent' : warn ? 'rgba(239,68,68,.06)' : `${route.color}08`,
                         border: `1px solid ${isBeingDragged ? 'transparent' : warn ? 'rgba(239,68,68,.2)' : route.color + '20'}`,
                         opacity: isBeingDragged ? 0.3 : 1,
-                        cursor: dragSrc ? 'grabbing' : 'grab',
+                        cursor: readOnly ? 'default' : dragSrc ? 'grabbing' : 'grab',
                       }}
                     >
                       <div className="flex items-start gap-2">
@@ -242,17 +260,17 @@ function ColumnsView({
                             style={{ background: '#a78bfa' }} />
                         )}
                         <div
-                          draggable
-                          onDragStart={e => { e.stopPropagation(); onDragStart('pickup', route.id, i) }}
-                          onDragOver={e => onDragOver(e, 'pickup', route.id, i)}
-                          onDrop={e => { e.preventDefault(); e.stopPropagation(); onDrop('pickup', route.id, i) }}
+                          draggable={!readOnly}
+                          onDragStart={e => { if (readOnly) return; e.stopPropagation(); onDragStart('pickup', route.id, i) }}
+                          onDragOver={e => { if (readOnly) return; onDragOver(e, 'pickup', route.id, i) }}
+                          onDrop={e => { if (readOnly) return; e.preventDefault(); e.stopPropagation(); onDrop('pickup', route.id, i) }}
                           onDragEnd={onDragEnd}
                           className="mx-2 mb-1 px-2.5 py-2 rounded-xl transition-all"
                           style={{
                             background: isBeingDragged ? 'transparent' : '#8b5cf610',
                             border: `1px solid ${isBeingDragged ? 'transparent' : '#8b5cf630'}`,
                             opacity: isBeingDragged ? 0.3 : 1,
-                            cursor: dragSrc ? 'grabbing' : 'grab',
+                            cursor: readOnly ? 'default' : dragSrc ? 'grabbing' : 'grab',
                           }}
                         >
                           <div className="flex items-start gap-1.5">
@@ -292,18 +310,20 @@ function ColumnsView({
       })}
       
       {/* Add new route button */}
-      <button
-        onClick={onAddRoute}
-        className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed shrink-0 transition-all hover:bg-white/5 active:scale-95"
-        style={{
-          width: 'clamp(220px, 20vw, 280px)',
-          borderColor: '#1e2d45',
-          color: '#475569'
-        }}
-      >
-        <div className="text-3xl mb-2">➕</div>
-        <div className="font-bold text-sm text-slate-400">הוסף קו חדש</div>
-      </button>
+      {!readOnly && (
+        <button
+          onClick={onAddRoute}
+          className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed shrink-0 transition-all hover:bg-white/5 active:scale-95"
+          style={{
+            width: 'clamp(220px, 20vw, 280px)',
+            borderColor: '#1e2d45',
+            color: '#475569'
+          }}
+        >
+          <div className="text-3xl mb-2">➕</div>
+          <div className="font-bold text-sm text-slate-400">הוסף קו חדש</div>
+        </button>
+      )}
     </div>
   )
 }
@@ -441,7 +461,7 @@ function mergeIntoExistingRoutes(
 // ─── Drag state types ─────────────────────────────────────────────────────────
 
 // ─── Upload Zone ──────────────────────────────────────────────────────────────
-function UploadZone({ onFile, loading }: { onFile: (f: File) => void; loading: boolean }) {
+function UploadZone({ onFile, loading, dateLabel }: { onFile: (f: File) => void; loading: boolean; dateLabel?: string }) {
   const [drag, setDrag] = useState(false)
   const ref = useRef<HTMLInputElement>(null)
 
@@ -478,6 +498,11 @@ function UploadZone({ onFile, loading }: { onFile: (f: File) => void; loading: b
         <div className="flex flex-col items-center gap-3">
           <div className={`text-6xl transition-transform ${drag ? 'scale-110' : ''}`}>📂</div>
           <div className="font-black text-xl text-slate-200">גרור קובץ אקסל לכאן</div>
+          {dateLabel && (
+            <div className="text-xs font-bold px-3 py-1 rounded-full bg-sky-500/10 text-sky-300 border border-sky-500/25">
+              עבור {dateLabel}
+            </div>
+          )}
           <div className="text-sm text-slate-500">או לחצי לבחירה &nbsp;·&nbsp; .xlsx / .xls</div>
           <div className="mt-2 text-xs text-slate-600 leading-relaxed">
             עמודות שהמערכת מזהה אוטומטית:<br />
@@ -534,7 +559,7 @@ function MergeDialog({
         style={{ width: 540, maxWidth: '95vw', background: '#0a1525', border: '1px solid #1e2d45' }}>
         <div className="px-6 pt-6 pb-4 text-center">
           <div className="text-5xl mb-3">📂</div>
-          <div className="font-black text-xl text-slate-100 mb-1">נמצא סידור קווים קיים להיום</div>
+          <div className="font-black text-xl text-slate-100 mb-1">נמצא סידור קווים קיים לתאריך זה</div>
           <div className="text-sm text-slate-500">
             {pending.length} לקוחות בקובץ החדש · {existingRoutes.length} קווים בסידור הנוכחי
           </div>
@@ -565,11 +590,15 @@ function MergeDialog({
   )
 }
 
-// ── Restore previous session dialog ──
-function RestoreDialog({
-  onRestore, onFresh
+// ── Confirm clearing/resetting date's arrangement dialog ──
+function ConfirmClearDialog({
+  dateLabel,
+  onConfirm,
+  onCancel,
 }: {
-  onRestore: () => void; onFresh: () => void
+  dateLabel: string
+  onConfirm: () => void
+  onCancel: () => void
 }) {
   return (
     <div className="fixed inset-0 z-[9200] flex items-center justify-center"
@@ -577,22 +606,25 @@ function RestoreDialog({
       <div className="rounded-2xl shadow-2xl overflow-hidden"
         style={{ width: 440, maxWidth: '95vw', background: '#0a1525', border: '1px solid #1e2d45' }} dir="rtl">
         <div className="px-6 pt-6 pb-4 text-center">
-          <div className="text-5xl mb-3">🕒</div>
-          <div className="font-black text-xl text-slate-100 mb-1">נמצא סידור להיום</div>
-          <div className="text-sm text-slate-500">
-            יש במערכת סידור קווים ששמור להיום. האם להמשיך ממנו או להתחיל מחדש?
+          <div className="text-5xl mb-3">🗑️</div>
+          <div className="font-black text-xl text-slate-100 mb-1">איפוס סידור לתאריך {dateLabel}</div>
+          <div className="text-sm text-slate-400 leading-relaxed">
+            פעולה זו תמחק את סידור הקווים השמור לתאריך זה ותחזיר למסך התחלה נקי. האם להמשיך?
           </div>
         </div>
-        <div className="flex flex-col gap-3 px-6 pb-6">
-          <button onClick={onRestore}
-            className="rounded-xl border-2 p-3 text-center transition-all hover:scale-[1.02] active:scale-[.98]"
-            style={{ borderColor: '#10b98150', background: 'linear-gradient(135deg,#10b98115,#10b98105)', color: '#34d399' }}>
-            <div className="font-bold text-sm">המשך את הסידור האחרון</div>
+        <div className="flex gap-3 px-6 pb-6">
+          <button
+            onClick={onCancel}
+            className="btn-ghost flex-1 justify-center"
+          >
+            ביטול
           </button>
-          <button onClick={onFresh}
-            className="rounded-xl border-2 p-3 text-center transition-all hover:scale-[1.02] active:scale-[.98]"
-            style={{ borderColor: '#ef444450', background: 'linear-gradient(135deg,#ef444415,#ef444405)', color: '#f87171' }}>
-            <div className="font-bold text-sm">התחל סידור חדש ומחק את הקודם</div>
+          <button
+            onClick={onConfirm}
+            className="flex-1 rounded-xl border-2 p-2.5 text-center font-bold text-sm transition-all hover:scale-[1.02] active:scale-[.98]"
+            style={{ borderColor: '#ef444460', background: 'linear-gradient(135deg,#ef444425,#ef444410)', color: '#f87171' }}
+          >
+            מחק והתחל מחדש
           </button>
         </div>
       </div>
@@ -615,6 +647,7 @@ function StopLine({ icon, label, muted }: { icon: string; label: string; muted?:
 function RouteCard({
   route, open, active, onToggle,
   dragSrc, onDragStart, onDragOver, onDrop, onDragEnd, onDeleteStop, onDeletePickup, dragOverInfo, onDeleteRoute,
+  readOnly = false,
 }: {
   route: Route; open: boolean; active: boolean; onToggle: () => void
   dragSrc: DragSrc | null
@@ -629,6 +662,7 @@ function RouteCard({
   onAssignDriver: (routeId: number, driverId: string) => void
   onToggleNightRoute: (routeId: number, isNight: boolean) => void
   onDeleteRoute: (routeId: number) => void
+  readOnly?: boolean
 }) {
   const pct = Math.min(100, (route.total_carts / 18) * 100)
   const hasWarn = (s: RouteStop) =>
@@ -645,8 +679,9 @@ function RouteCard({
         background: active ? `${route.color}08` : '#0f1d30',
       }}
       // Drop onto route header = add to end
-      onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
+      onDragOver={e => { if (readOnly) return; e.preventDefault(); e.stopPropagation() }}
       onDrop={e => {
+        if (readOnly) return;
         e.preventDefault();
         if (dragSrc?.type === 'stop') onDrop('stop', route.id, route.stops.length);
         if (dragSrc?.type === 'pickup') onDrop('pickup', route.id, route.pickups.length);
@@ -672,7 +707,7 @@ function RouteCard({
             ))
           })()}
         </div>
-        {route.stops.length === 0 && (!route.pickups || route.pickups.length === 0) && (
+        {!readOnly && route.stops.length === 0 && (!route.pickups || route.pickups.length === 0) && (
           <button 
             onClick={(e) => { e.stopPropagation(); onDeleteRoute(route.id) }} 
             className="text-slate-500 hover:text-red-400 px-2" title="מחק קו ריק"
@@ -705,23 +740,25 @@ function RouteCard({
                 )}
 
                 <div
-                  draggable
-                  onDragStart={e => { e.stopPropagation(); onDragStart('stop', route.id, i) }}
-                  onDragOver={e => onDragOver(e, 'stop', route.id, i)}
-                  onDrop={e => { e.preventDefault(); e.stopPropagation(); onDrop('stop', route.id, i) }}
+                  draggable={!readOnly}
+                  onDragStart={e => { if (readOnly) return; e.stopPropagation(); onDragStart('stop', route.id, i) }}
+                  onDragOver={e => { if (readOnly) return; onDragOver(e, 'stop', route.id, i) }}
+                  onDrop={e => { if (readOnly) return; e.preventDefault(); e.stopPropagation(); onDrop('stop', route.id, i) }}
                   onDragEnd={onDragEnd}
                   className={`
                     flex items-start gap-2.5 py-1.5 border-b border-white/5 last:border-0
                     rounded-lg transition-all group
                     ${isBeingDragged ? 'opacity-30' : 'opacity-100'}
-                    ${dragSrc ? 'cursor-grabbing' : 'cursor-grab hover:bg-white/3'}
+                    ${readOnly ? 'cursor-default' : dragSrc ? 'cursor-grabbing' : 'cursor-grab hover:bg-white/3'}
                   `}
                 >
                   {/* Drag handle */}
-                  <div className="text-slate-700 group-hover:text-slate-500 text-xs pt-1 shrink-0 select-none"
-                    style={{ cursor: 'grab' }}>
-                    ⠿
-                  </div>
+                  {!readOnly && (
+                    <div className="text-slate-700 group-hover:text-slate-500 text-xs pt-1 shrink-0 select-none"
+                      style={{ cursor: 'grab' }}>
+                      ⠿
+                    </div>
+                  )}
 
                   {/* Number badge */}
                   <div
@@ -757,20 +794,22 @@ function RouteCard({
                   </div>
 
                   {/* Delete button — visible on hover */}
-                  <button
-                    onClick={e => { e.stopPropagation(); onDeleteStop(route.id, i) }}
-                    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-red-400 text-xs px-1 pt-0.5"
-                    title="מחק עצירה"
-                  >
-                    ✕
-                  </button>
+                  {!readOnly && (
+                    <button
+                      onClick={e => { e.stopPropagation(); onDeleteStop(route.id, i) }}
+                      className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-red-400 text-xs px-1 pt-0.5"
+                      title="מחק עצירה"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
               </div>
             )
           })}
 
           {/* Drop zone at the end of the list */}
-          {dragSrc && dragSrc.type === 'stop' && dragSrc.routeId !== route.id && (
+          {!readOnly && dragSrc && dragSrc.type === 'stop' && dragSrc.routeId !== route.id && (
             <div
               className="h-6 rounded-lg border border-dashed border-white/10 mt-1 flex items-center justify-center text-[10px] text-slate-600 hover:border-white/30 hover:text-slate-400 transition-all"
               onDragOver={e => onDragOver(e, 'stop', route.id, route.stops.length)}
@@ -783,7 +822,7 @@ function RouteCard({
           <StopLine icon="🏠" label="מושב חגלה — חזרה" muted />
 
           {/* ── Pickups for this route ── */}
-          {(route.pickups?.length > 0 || (dragSrc && dragSrc.type === 'pickup')) && (
+          {(route.pickups?.length > 0 || (!readOnly && dragSrc && dragSrc.type === 'pickup')) && (
             <div className="mt-2 pt-2 border-t" style={{ borderColor: '#8b5cf620' }}>
               {route.pickups?.length > 0 && (
                 <div className="text-[9px] font-bold uppercase tracking-wider mb-1.5 px-0.5"
@@ -801,23 +840,25 @@ function RouteCard({
                         style={{ background: '#a78bfa' }} />
                     )}
                     <div
-                      draggable
-                      onDragStart={e => { e.stopPropagation(); onDragStart('pickup', route.id, i) }}
-                      onDragOver={e => onDragOver(e, 'pickup', route.id, i)}
-                      onDrop={e => { e.preventDefault(); e.stopPropagation(); onDrop('pickup', route.id, i) }}
+                      draggable={!readOnly}
+                      onDragStart={e => { if (readOnly) return; e.stopPropagation(); onDragStart('pickup', route.id, i) }}
+                      onDragOver={e => { if (readOnly) return; onDragOver(e, 'pickup', route.id, i) }}
+                      onDrop={e => { if (readOnly) return; e.preventDefault(); e.stopPropagation(); onDrop('pickup', route.id, i) }}
                       onDragEnd={onDragEnd}
                       className={`
                         flex items-start gap-2.5 py-1.5 border-b border-white/5 last:border-0
                         rounded-lg transition-all group
                         ${isBeingDragged ? 'opacity-30' : 'opacity-100'}
-                        ${dragSrc ? 'cursor-grabbing' : 'cursor-grab hover:bg-white/3'}
+                        ${readOnly ? 'cursor-default' : dragSrc ? 'cursor-grabbing' : 'cursor-grab hover:bg-white/3'}
                       `}
                       style={{ borderColor: '#8b5cf615' }}
                     >
-                      <div className="text-purple-700 group-hover:text-purple-500 text-xs pt-1 shrink-0 select-none"
-                        style={{ cursor: 'grab' }}>
-                        ⠿
-                      </div>
+                      {!readOnly && (
+                        <div className="text-purple-700 group-hover:text-purple-500 text-xs pt-1 shrink-0 select-none"
+                          style={{ cursor: 'grab' }}>
+                          ⠿
+                        </div>
+                      )}
                       <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 mt-0.5"
                         style={{ background: '#8b5cf625', color: '#a78bfa' }}>↩</div>
                       <div className="flex-1 min-w-0 text-xs">
@@ -828,19 +869,21 @@ function RouteCard({
                       </div>
 
                       {/* Delete button — visible on hover */}
-                      <button
-                        onClick={e => { e.stopPropagation(); onDeletePickup(route.id, i) }}
-                        className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-red-400 text-xs px-1 pt-0.5"
-                        title="מחק איסוף מסידור זה"
-                      >
-                        ✕
-                      </button>
+                      {!readOnly && (
+                        <button
+                          onClick={e => { e.stopPropagation(); onDeletePickup(route.id, i) }}
+                          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-red-400 text-xs px-1 pt-0.5"
+                          title="מחק איסוף מסידור זה"
+                        >
+                          ✕
+                        </button>
+                      )}
                     </div>
                   </div>
                 )
               })}
               {/* Drop zone for pickups */}
-              {dragSrc && dragSrc.type === 'pickup' && dragSrc.routeId !== route.id && (
+              {!readOnly && dragSrc && dragSrc.type === 'pickup' && dragSrc.routeId !== route.id && (
                 <div
                   className="h-6 rounded-lg border border-dashed border-purple-500/30 mt-1 flex items-center justify-center text-[10px] text-purple-400 hover:border-purple-400/50 transition-all"
                   onDragOver={e => onDragOver(e, 'pickup', route.id, route.pickups.length)}
@@ -860,6 +903,16 @@ function RouteCard({
 
 // ─── Main ──────────────────────────────────────────────────────────────────────
 export function MainView() {
+  const [israelToday, setIsraelToday] = useState<string>(() => getIsraelTodayStr())
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const initial = getIsraelTodayStr()
+    setActiveSessionDate(initial)
+    return initial
+  })
+  const [unlockedDates, setUnlockedDates] = useState<Set<string>>(() => new Set())
+  const [isLoadingDate, setIsLoadingDate] = useState(true)
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
+
   const [result, setResult] = useState<RoutesResult | null>(null)
   const [reviewRows, setReviewRows] = useState<any[] | null>(null)  // parsed Excel rows
   const [loading, setLoading] = useState(false)
@@ -873,8 +926,6 @@ export function MainView() {
   const [showPickups, setShowPickups] = useState(false)
   const [showDrivers, setShowDrivers] = useState(false)
   const [showPickupsOnMap, setShowPickupsOnMap] = useState(true)
-  const [isInitialLoadDone, setIsInitialLoadDone] = useState(false)
-  const [savedResultToRestore, setSavedResultToRestore] = useState<RoutesResult | null>(null)
   const [drivers, setDrivers] = useState<Driver[]>([])
 
   // ── Merge dialog state ─────────────────────────────────────────────────────────────
@@ -889,40 +940,112 @@ export function MainView() {
   // ref for the hidden file input used when result already exists
   const reuploadRef = useRef<HTMLInputElement>(null)
 
-  // Load from Supabase on mount
-  useEffect(() => {
-    getRoutesResult().then(r => {
-      // If there's a valid result saved, show the restore dialog instead of auto-loading
-      if (r && r.routes && r.routes.length > 0) {
-        setSavedResultToRestore(r)
-      } else {
-        setIsInitialLoadDone(true)
-      }
-    }).catch(e => {
-      console.error("Failed to load saved routes:", e)
-      setIsInitialLoadDone(true)
-    })
+  const loadedDateRef = useRef<string | null>(null)
+  const lastSyncedResultRef = useRef<RoutesResult | null>(null)
 
+  const isPastDate = selectedDate < israelToday
+  const isReadOnly = isPastDate && !unlockedDates.has(selectedDate)
+  const activeDateFullLabel = `${formatDayOfWeekHe(selectedDate)} · ${formatDateHeDisplay(selectedDate)}`
+
+  // Keep israelToday fresh if browser tab stays open across days
+  useEffect(() => {
+    const refreshToday = () => setIsraelToday(getIsraelTodayStr())
+    window.addEventListener('focus', refreshToday)
+    const interval = setInterval(refreshToday, 60_000)
+    return () => {
+      window.removeEventListener('focus', refreshToday)
+      clearInterval(interval)
+    }
+  }, [])
+
+  // Load drivers once on mount
+  useEffect(() => {
     getAllDrivers().then(setDrivers).catch(e => console.error(e))
   }, [])
 
-  // Save to Supabase whenever it changes
+  // Load selected date's session immediately when selectedDate changes
   useEffect(() => {
-    if (isInitialLoadDone) {
-      setRoutesResult(result)
-    }
-  }, [result, isInitialLoadDone])
+    let cancelled = false
+    loadedDateRef.current = null
+    setIsLoadingDate(true)
+    setActiveSessionDate(selectedDate)
+    setReviewRows(null)
+    setOpenRoute(null)
+    setActiveRouteIds(null)
+    setMergeWarnings([])
+    setMergeUnassigned([])
+    setError('')
 
-  const handleRestoreChoice = (choice: 'restore' | 'fresh') => {
-    if (choice === 'restore' && savedResultToRestore) {
-      setResult(savedResultToRestore)
-    } else {
+    getRoutesResult(selectedDate)
+      .then(r => {
+        if (cancelled) return
+        const hydrated = r && r.routes && r.routes.length > 0
+          ? { ...r, date: formatDateHeDisplay(selectedDate) }
+          : null
+        lastSyncedResultRef.current = hydrated
+        setResult(hydrated)
+        loadedDateRef.current = selectedDate
+        setIsLoadingDate(false)
+      })
+      .catch(e => {
+        if (cancelled) return
+        console.error('Failed to load saved routes:', e)
+        lastSyncedResultRef.current = null
+        setResult(null)
+        loadedDateRef.current = selectedDate
+        setIsLoadingDate(false)
+      })
+
+    return () => { cancelled = true }
+  }, [selectedDate])
+
+  // Save to Supabase whenever result is edited on an unlocked, loaded date
+  useEffect(() => {
+    if (isLoadingDate || loadedDateRef.current !== selectedDate) return
+    if (isReadOnly) return
+    if (lastSyncedResultRef.current === result) return
+    lastSyncedResultRef.current = result
+    setRoutesResult(result, selectedDate)
+  }, [result, isLoadingDate, selectedDate, isReadOnly])
+
+  const handleSelectDate = useCallback((nextDate: string) => {
+    if (!nextDate || nextDate === selectedDate) return
+    setSelectedDate(nextDate)
+  }, [selectedDate])
+
+  const handleUnlockPastDate = useCallback(() => {
+    setUnlockedDates(prev => {
+      const next = new Set(prev)
+      next.add(selectedDate)
+      return next
+    })
+  }, [selectedDate])
+
+  const handleLockPastDate = useCallback(() => {
+    setUnlockedDates(prev => {
+      const next = new Set(prev)
+      next.delete(selectedDate)
+      return next
+    })
+  }, [selectedDate])
+
+  const handleConfirmClearDate = useCallback(async () => {
+    setShowClearConfirm(false)
+    setLoading(true)
+    setError('')
+    try {
+      await clearDailySession(selectedDate)
+      lastSyncedResultRef.current = null
       setResult(null)
-      import('@/lib/sessionStore').then(m => m.setRoutesResult(null))
+      setReviewRows(null)
+      setMergeWarnings([])
+      setMergeUnassigned([])
+    } catch (e: any) {
+      setError(e.message || 'שגיאה במחיקת הסידור')
+    } finally {
+      setLoading(false)
     }
-    setSavedResultToRestore(null)
-    setIsInitialLoadDone(true)
-  }
+  }, [selectedDate])
 
   // Drag state
   const [dragSrc, setDragSrc] = useState<DragSrc | null>(null)
@@ -1032,11 +1155,11 @@ export function MainView() {
     setLoading(true); setError('')
     try {
       const pickups = await getAllPickupRecords()
-      const selectedPickupIds = await getSelectedPickupIdsArray()
+      const selectedPickupIds = await getSelectedPickupIdsArray(selectedDate)
       const r = await fetch('/api/routes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stops, numTrucks: trucks, pickups, selectedPickupIds }),
+        body: JSON.stringify({ stops, numTrucks: trucks, pickups, selectedPickupIds, date: selectedDate }),
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error || 'שגיאה')
@@ -1051,7 +1174,7 @@ export function MainView() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [selectedDate])
 
   // ── If existing result → offer merge dialog; otherwise build fresh ──────────────
   const handleSubmitStops = useCallback(async (stops: any[], trucks: number) => {
@@ -1131,6 +1254,7 @@ export function MainView() {
 
   // ── File upload → parse only, advance to review ──────────────────────────────
   const handleFile = useCallback(async (file: File) => {
+    if (isReadOnly) return
     // NOTE: do NOT clear result here — we keep it so the user can choose merge vs fresh
     setLoading(true); setError(''); setReviewRows(null)
     setOpenRoute(null); setActiveRouteIds(null)
@@ -1141,13 +1265,13 @@ export function MainView() {
       const d = await r.json()
       if (!r.ok) throw new Error(d.error || 'שגיאה')
       setReviewRows(d.rows)
-      await setOriginalRows(d.rows)
+      await setOriginalRows(d.rows, selectedDate)
     } catch (e: any) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [selectedDate, isReadOnly])
 
   // ── Reroute: extract current stops from result and re-send ─────────────────
   const handleReroute = useCallback(async () => {
@@ -1169,12 +1293,12 @@ export function MainView() {
 
   // ── Insert Pickups ONLY into existing routes ──────────────────────────────────
   const handleInsertPickups = useCallback(async () => {
-    if (!result) return
+    if (!result || isReadOnly) return
     setLoading(true)
     setError('')
     try {
       const pickupsList = await getAllPickupRecords()
-      const selectedIds = await getSelectedPickupIdsArray()
+      const selectedIds = await getSelectedPickupIdsArray(selectedDate)
 
       // 1. Create a deep copy of the existing routes to avoid direct mutation
       const newRoutes = result.routes.map(r => ({
@@ -1282,7 +1406,7 @@ export function MainView() {
     } finally {
       setLoading(false)
     }
-  }, [result])
+  }, [result, isReadOnly, selectedDate])
 
   const handleExport = async () => {
     if (!result) return
@@ -1292,14 +1416,15 @@ export function MainView() {
       return
     }
     setExporting(true)
+    const exportDate = formatDateHeDisplay(selectedDate)
     try {
       const r = await fetch('/api/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ routes: result.routes, date: result.date }),
+        body: JSON.stringify({ routes: result.routes, date: exportDate }),
       })
       const blob = await r.blob()
-      const fileName = `קווים-${result.date.replace(/\//g, '-')}.xlsx`
+      const fileName = `קווים-${exportDate.replace(/\//g, '-')}.xlsx`
 
       if ('showSaveFilePicker' in window) {
         try {
@@ -1373,14 +1498,25 @@ export function MainView() {
     <div className="flex flex-col h-screen overflow-hidden">
 
       {/* ── Header ── */}
-      <header className="flex items-center gap-4 px-6 py-3 bg-surface border-b border-border shrink-0">
-        <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-lg">
-          🚛
+      <header className="flex items-center gap-3 px-6 py-3 bg-surface border-b border-border shrink-0 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-lg">
+            🚛
+          </div>
+          <div>
+            <h1 className="font-black text-base tracking-tight">סידור קווי הפצה</h1>
+            <p className="text-xs text-slate-500">ינאי בתי צמיחה</p>
+          </div>
         </div>
-        <div>
-          <h1 className="font-black text-base tracking-tight">סידור קווי הפצה</h1>
-          <p className="text-xs text-slate-500">ינאי בתי צמיחה</p>
-        </div>
+
+        {/* Prominent Date Picker */}
+        <DateNavigator
+          selectedDate={selectedDate}
+          israelToday={israelToday}
+          onSelectDate={handleSelectDate}
+          hasCurrentRoutes={!!(result && result.routes.length > 0)}
+          isReadOnly={isReadOnly}
+        />
 
         <div className="flex gap-2 mr-auto items-center flex-wrap">
           {(() => {
@@ -1483,19 +1619,76 @@ export function MainView() {
         </div>
       </header>
 
-      {/* Restore dialog */}
-      {savedResultToRestore && (
-        <RestoreDialog
-          onRestore={() => handleRestoreChoice('restore')}
-          onFresh={() => handleRestoreChoice('fresh')}
-        />
+      {/* Past-date Read-Only / Unlocked Banner */}
+      {isPastDate && (
+        <div
+          className="px-6 py-2 border-b flex items-center justify-between gap-3 shrink-0 text-xs"
+          dir="rtl"
+          style={{
+            background: isReadOnly ? '#1e293b90' : '#7c2d1240',
+            borderColor: isReadOnly ? '#334155' : '#ea580c50',
+          }}
+        >
+          {isReadOnly ? (
+            <>
+              <div className="flex items-center gap-2 text-slate-200">
+                <span>🔒</span>
+                <span className="font-bold">תאריך עבר ({activeDateFullLabel}) — מצב צפייה בלבד</span>
+                <span className="text-slate-400 hidden md:inline">
+                  · ניתן לצפות בקווים ולייצא Excel. לעריכה לחץ על &quot;אפשר עריכה&quot;.
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={handleUnlockPastDate}
+                  className="px-3 py-1 rounded-lg font-bold border border-sky-500/40 bg-sky-500/15 text-sky-300 hover:bg-sky-500/25 transition-colors"
+                >
+                  🔓 אפשר עריכה
+                </button>
+                <button
+                  onClick={() => handleSelectDate(israelToday)}
+                  className="px-3 py-1 rounded-lg font-bold border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors"
+                >
+                  📅 חזרה להיום
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 text-slate-200">
+                <span>✏️</span>
+                <span className="font-bold">מצב עריכה לתאריך עבר ({activeDateFullLabel})</span>
+                <span className="text-slate-400 hidden md:inline">
+                  · כל שינוי יישמר להיסטוריה של תאריך זה.
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={handleLockPastDate}
+                  className="px-3 py-1 rounded-lg font-bold border border-slate-500/50 bg-slate-700/40 text-slate-200 hover:bg-slate-700/70 transition-colors"
+                >
+                  🔒 נעל לצפייה בלבד
+                </button>
+                <button
+                  onClick={() => handleSelectDate(israelToday)}
+                  className="px-3 py-1 rounded-lg font-bold border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors"
+                >
+                  📅 חזרה להיום
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
-      {/* Customer manager modal */}
-      {showCustomers && <CustomerManager onClose={() => setShowCustomers(false)} />}
-
-      {/* Pickups manager modal */}
-      {showPickups && <PickupsManager onClose={() => setShowPickups(false)} />}
+      {/* Confirm clear date dialog */}
+      {showClearConfirm && (
+        <ConfirmClearDialog
+          dateLabel={activeDateFullLabel}
+          onConfirm={handleConfirmClearDate}
+          onCancel={() => setShowClearConfirm(false)}
+        />
+      )}
 
       {/* ── Body ── */}
       <div className="flex flex-1 overflow-hidden">
@@ -1512,22 +1705,27 @@ export function MainView() {
               onDrop={handleDrop}
               onDragEnd={handleDragEnd}
               allDrivers={drivers}
+              readOnly={isReadOnly}
               onAssignDriver={(routeId, driverId) => {
+                if (isReadOnly) return
                 const drv = drivers.find(d => d.id === driverId)
                 const updated = result.routes.map(r => r.id === routeId ? { ...r, driver: drv } : r)
                 setResult({ ...result, routes: updated })
               }}
               onToggleNightRoute={(routeId, isNight) => {
+                if (isReadOnly) return
                 const updated = result.routes.map(r => r.id === routeId ? { ...r, isNightRoute: isNight } : r)
                 setResult({ ...result, routes: updated })
               }}
               onAddRoute={handleAddRoute}
               onDeleteRoute={handleDeleteRoute}
               onUpdateRouteName={(routeId, name) => {
+                if (isReadOnly) return
                 const updated = result.routes.map(r => r.id === routeId ? { ...r, name } : r)
                 setResult({ ...result, routes: updated })
               }}
               onReorderRoute={(draggedRouteId, targetRouteId) => {
+                if (isReadOnly) return
                 if (draggedRouteId === targetRouteId) return
                 const draggedIdx = result.routes.findIndex(r => r.id === draggedRouteId)
                 const targetIdx = result.routes.findIndex(r => r.id === targetRouteId)
@@ -1549,21 +1747,30 @@ export function MainView() {
 
               {/* Controls */}
               <div className="p-4 border-b border-border space-y-3">
-                <div className="flex gap-3 items-end">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                      משאיות
-                    </label>
-                    <input
-                      type="number" min={1} max={20} value={numTrucks}
-                      onChange={e => setNumTrucks(parseInt(e.target.value) || 1)}
-                      className="input w-20 text-center text-xl font-black"
-                    />
+                {!isReadOnly && (
+                  <div className="flex gap-3 items-end">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                        משאיות
+                      </label>
+                      <input
+                        type="number" min={1} max={20} value={numTrucks}
+                        onChange={e => setNumTrucks(parseInt(e.target.value) || 1)}
+                        className="input w-20 text-center text-xl font-black"
+                      />
+                    </div>
+                    <div className="flex-1 text-xs text-slate-500 leading-relaxed pb-1">
+                      בחרי את מספר המשאיות הזמינות לתאריך זה. המערכת תחלק בצורה מיטבית.
+                    </div>
                   </div>
-                  <div className="flex-1 text-xs text-slate-500 leading-relaxed pb-1">
-                    בחרי את מספר המשאיות הזמינות היום. המערכת תחלק בצורה מיטבית.
+                )}
+
+                {isReadOnly && (
+                  <div className="text-xs text-slate-400 flex items-center gap-2">
+                    <span>🔒</span>
+                    <span>צפייה בסידור שמור מ-{formatDateHeDisplay(selectedDate)}</span>
                   </div>
-                </div>
+                )}
 
                 {error && (
                   <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5 text-xs text-red-300">
@@ -1572,7 +1779,7 @@ export function MainView() {
                 )}
 
                 {/* Drag instruction */}
-                {result && (
+                {result && !isReadOnly && (
                   <div className="text-[10px] text-slate-600 flex items-center gap-1.5">
                     <span>⠿</span>
                     <span>גרור עצירות בין קווים או בתוך קו לשינוי הסדר</span>
@@ -1612,9 +1819,42 @@ export function MainView() {
               {/* Scroll area */}
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
 
-                {/* Upload zone — shown only when no result yet */}
-                {!result && (
-                  <UploadZone onFile={handleFile} loading={loading} />
+                {/* Loading state when switching dates */}
+                {isLoadingDate && (
+                  <div className="rounded-2xl border border-border p-10 text-center flex flex-col items-center gap-3">
+                    <div className="text-4xl animate-pulse">📅</div>
+                    <div className="font-bold text-slate-300 text-sm">טוען נתונים עבור {activeDateFullLabel}...</div>
+                  </div>
+                )}
+
+                {/* Empty archive state for locked past dates without saved routes */}
+                {!isLoadingDate && !result && isReadOnly && (
+                  <div className="rounded-2xl border border-border p-8 text-center flex flex-col items-center gap-3" dir="rtl">
+                    <div className="text-5xl">📭</div>
+                    <div className="font-black text-base text-slate-200">לא נשמר סידור לתאריך זה</div>
+                    <div className="text-xs text-slate-500 leading-relaxed">
+                      אין קווי הפצה שמורים עבור {activeDateFullLabel}.
+                    </div>
+                    <div className="flex flex-col gap-2 w-full mt-2">
+                      <button
+                        onClick={() => handleSelectDate(israelToday)}
+                        className="w-full py-2 rounded-xl text-xs font-bold border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors"
+                      >
+                        📅 עבור לסידור של היום
+                      </button>
+                      <button
+                        onClick={handleUnlockPastDate}
+                        className="w-full py-2 rounded-xl text-xs font-bold border border-border text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-colors"
+                      >
+                        🔓 אפשר עריכה ויצירת סידור לתאריך זה
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Upload zone — shown when editable and no result yet */}
+                {!isLoadingDate && !result && !isReadOnly && (
+                  <UploadZone onFile={handleFile} loading={loading} dateLabel={activeDateFullLabel} />
                 )}
 
                 {/* Hidden file input for re-upload when result already exists */}
@@ -1627,62 +1867,75 @@ export function MainView() {
                 />
 
 
-                {result && (
+                {!isLoadingDate && result && (
                   <>
-                    <div className="flex gap-2">
-                      {/* New file button — opens picker WITHOUT clearing result */}
-                      <button
-                        className="btn-ghost flex-1 text-[11px] h-9 px-0"
-                        onClick={() => { setError(''); reuploadRef.current?.click() }}
-                      >
-                        📂 סידור חדש
-                      </button>
+                    {!isReadOnly && (
+                      <>
+                        <div className="flex gap-2">
+                          {/* Upload file button — opens picker WITHOUT clearing result (offers merge vs fresh) */}
+                          <button
+                            className="btn-ghost flex-1 text-[11px] h-9 px-0 justify-center"
+                            onClick={() => { setError(''); reuploadRef.current?.click() }}
+                            title="העלה קובץ אקסל לעדכון כמויות או סידור מחדש"
+                          >
+                            📂 העלאת קובץ
+                          </button>
 
-                      <button
-                        className="btn-ghost flex-1 text-[11px] h-9 px-0 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
-                        onClick={async () => {
-                          const orig = await getOriginalRows()
-                          if (orig) {
-                            setReviewRows(orig)
-                          } else {
-                            alert('לא נמצא קובץ הלקוחות המקורי. אנא העלה מחדש את סידור הבוקר ע"י לחיצה על "סידור חדש".')
-                          }
-                        }}
-                      >
-                        ✏️ עריכת לקוחות
-                      </button>
-                    </div>
+                          <button
+                            className="btn-ghost flex-1 text-[11px] h-9 px-0 justify-center border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+                            onClick={async () => {
+                              const orig = await getOriginalRows(selectedDate)
+                              if (orig) {
+                                setReviewRows(orig)
+                              } else {
+                                alert('לא נמצא קובץ הלקוחות המקורי לתאריך זה. אנא העלה מחדש את הקובץ ע"י לחיצה על "העלאת קובץ".')
+                              }
+                            }}
+                          >
+                            ✏️ עריכת לקוחות
+                          </button>
 
-                    {/* Re-route button */}
-                    <button
-                      className="w-full text-sm font-bold py-2 rounded-xl border-2 transition-all"
-                      disabled={loading}
-                      onClick={handleReroute}
-                      style={{
-                        background: loading ? '#1e2d45' : 'linear-gradient(135deg,#3b82f618,#3b82f608)',
-                        color: loading ? '#475569' : '#60a5fa',
-                        borderColor: loading ? '#1e2d45' : '#3b82f640',
-                      }}
-                    >
-                      {loading ? '⏳ מסדר...' : '🔄 סדר קווים מחדש'}
-                    </button>
+                          <button
+                            className="btn-ghost text-[11px] h-9 px-2.5 justify-center border border-red-500/25 text-red-400 hover:bg-red-500/10 hover:border-red-500/50"
+                            onClick={() => setShowClearConfirm(true)}
+                            title="מחק את הסידור של תאריך זה והתחל מחדש"
+                          >
+                            🗑️ איפוס
+                          </button>
+                        </div>
 
-                    {/* Insert Pickups ONLY button */}
-                    <button
-                      className="w-full text-sm font-bold py-2 rounded-xl border-2 transition-all"
-                      disabled={loading}
-                      onClick={handleInsertPickups}
-                      style={{
-                        background: loading ? '#1e2d45' : 'linear-gradient(135deg,#8b5cf618,#8b5cf608)',
-                        color: loading ? '#475569' : '#a78bfa',
-                        borderColor: loading ? '#1e2d45' : '#8b5cf640',
-                      }}
-                    >
-                      {loading ? '⏳ מסדר איסופים...' : '↩ הכנס איסופים'}
-                    </button>
+                        {/* Re-route button */}
+                        <button
+                          className="w-full text-sm font-bold py-2 rounded-xl border-2 transition-all"
+                          disabled={loading}
+                          onClick={handleReroute}
+                          style={{
+                            background: loading ? '#1e2d45' : 'linear-gradient(135deg,#3b82f618,#3b82f608)',
+                            color: loading ? '#475569' : '#60a5fa',
+                            borderColor: loading ? '#1e2d45' : '#3b82f640',
+                          }}
+                        >
+                          {loading ? '⏳ מסדר...' : '🔄 סדר קווים מחדש'}
+                        </button>
+
+                        {/* Insert Pickups ONLY button */}
+                        <button
+                          className="w-full text-sm font-bold py-2 rounded-xl border-2 transition-all"
+                          disabled={loading}
+                          onClick={handleInsertPickups}
+                          style={{
+                            background: loading ? '#1e2d45' : 'linear-gradient(135deg,#8b5cf618,#8b5cf608)',
+                            color: loading ? '#475569' : '#a78bfa',
+                            borderColor: loading ? '#1e2d45' : '#8b5cf640',
+                          }}
+                        >
+                          {loading ? '⏳ מסדר איסופים...' : '↩ הכנס איסופים'}
+                        </button>
+                      </>
+                    )}
 
                     {/* Export */}
-                    <button className="btn-primary w-full" onClick={handleExport} disabled={exporting}>
+                    <button className="btn-primary w-full justify-center" onClick={handleExport} disabled={exporting}>
                       {exporting ? '⏳ מייצא...' : '📥 ייצוא Excel לנהגים'}
                     </button>
 
@@ -1722,14 +1975,16 @@ export function MainView() {
                     )}
 
                     {/* Show all toggle */}
-                    <button className="btn-ghost w-full text-xs py-1.5" onClick={showAll}>
+                    <button className="btn-ghost w-full text-xs py-1.5 justify-center" onClick={showAll}>
                       ○ הצג את כל הקווים
                     </button>
 
                     {/* Add route button */}
-                    <button className="btn-ghost w-full text-xs py-1.5 mt-1 border border-dashed border-slate-600/50 hover:bg-white/5" onClick={handleAddRoute}>
-                      ➕ הוסף קו חדש
-                    </button>
+                    {!isReadOnly && (
+                      <button className="btn-ghost w-full text-xs py-1.5 mt-1 justify-center border border-dashed border-slate-600/50 hover:bg-white/5" onClick={handleAddRoute}>
+                        ➕ הוסף קו חדש
+                      </button>
+                    )}
 
                     {/* Route cards */}
                     {result.routes.map(route => (
@@ -1748,12 +2003,15 @@ export function MainView() {
                         onDeleteStop={handleDeleteStop}
                         onDeletePickup={handleDeletePickup}
                         allDrivers={drivers}
+                        readOnly={isReadOnly}
                         onAssignDriver={(routeId, driverId) => {
+                          if (isReadOnly) return
                           const drv = drivers.find(d => d.id === driverId)
                           const updated = result.routes.map(r => r.id === routeId ? { ...r, driver: drv } : r)
                           setResult({ ...result, routes: updated })
                         }}
                         onToggleNightRoute={(routeId, isNight) => {
+                          if (isReadOnly) return
                           const updated = result.routes.map(r => r.id === routeId ? { ...r, isNightRoute: isNight } : r)
                           setResult({ ...result, routes: updated })
                         }}
@@ -1826,7 +2084,7 @@ export function MainView() {
 
       {/* Modals */}
       {showCustomers && <CustomerManager onClose={() => setShowCustomers(false)} />}
-      {showPickups && <PickupsManager onClose={() => setShowPickups(false)} />}
+      {showPickups && <PickupsManager onClose={() => setShowPickups(false)} readOnly={isReadOnly} />}
       {showDrivers && (
         <DriversManager
           onClose={() => {
