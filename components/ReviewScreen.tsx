@@ -6,6 +6,7 @@ import {
     getManualEntries, upsertManualEntry, removeManualEntry,
     getEntryOverrides, setEntryOverride,
     cancelEntry, restoreEntry, getCancelledCodes,
+    getActiveSessionDate, formatDateHeDisplay, formatDayOfWeekHe,
 } from '@/lib/sessionStore'
 import { MapPicker } from './MapPicker'
 import { geocodeBatch, geocode } from '@/lib/geocode'
@@ -714,7 +715,9 @@ export function ReviewScreen({ rows, onCancel, onBuildRoutes, numTrucks, setNumT
                 <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-lg">🚛</div>
                 <div>
                     <h1 className="font-black text-base tracking-tight">בדיקת לקוחות ושיוך כתובות</h1>
-                    <p className="text-xs text-slate-500">{withAddress.length} מוכנים · {missingAddress.length} ממתינים לכתובת</p>
+                    <p className="text-xs text-slate-500">
+                        📅 {formatDayOfWeekHe(getActiveSessionDate())} · {formatDateHeDisplay(getActiveSessionDate())} &nbsp;|&nbsp; {withAddress.length} מוכנים · {missingAddress.length} ממתינים לכתובת
+                    </p>
                 </div>
                 <div className="flex gap-2 mr-auto items-center flex-wrap">
                     {[

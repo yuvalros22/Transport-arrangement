@@ -6,14 +6,17 @@ import {
     newPickupRecordId, markPickupDone, getTodayCompletion,
     getRecentCompletions, unmarkPickupDone,
 } from '@/lib/pickupDb'
-import { getSelectedPickupIds, setPickupSelected, setMultiplePickupsSelected } from '@/lib/sessionStore'
+import {
+    getSelectedPickupIds, setPickupSelected, setMultiplePickupsSelected,
+    getActiveSessionDate, formatDateHeDisplay,
+} from '@/lib/sessionStore'
 import { getAllCustomers } from '@/lib/customerDb'
 import { MapPicker } from './MapPicker'
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function todayStr(): string {
-    return new Date().toISOString().slice(0, 10)
+    return getActiveSessionDate()
 }
 
 function formatDate(isoString?: string): string {
@@ -73,7 +76,7 @@ function HistoryBadge({ completions }: { completions: PickupRecord['completions'
 // ─── Pickup card ───────────────────────────────────────────────────────────────
 
 function PickupCard({
-    record, selected, todayDone, onToggleSelected, onToggleDone, onEdit, onDelete,
+    record, selected, todayDone, onToggleSelected, onToggleDone, onEdit, onDelete, readOnly = false,
 }: {
     record: PickupRecord
     selected: boolean
@@ -82,6 +85,7 @@ function PickupCard({
     onToggleDone: (done: boolean) => void
     onEdit: () => void
     onDelete: () => void
+    readOnly?: boolean
 }) {
     const [expanded, setExpanded] = useState(false)
     const hasAddress = record.lat !== null
@@ -98,13 +102,14 @@ function PickupCard({
             <div className="flex items-center gap-2.5 px-3 py-2.5">
                 {/* Select for routing checkbox */}
                 <button
-                    onClick={onToggleSelected}
-                    className="w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all"
+                    onClick={() => !readOnly && onToggleSelected()}
+                    disabled={readOnly}
+                    className="w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                     style={{
                         borderColor: selected ? '#8b5cf6' : '#334155',
                         background: selected ? '#8b5cf6' : 'transparent',
                     }}
-                    title="סמן לסידור קווים היום"
+                    title={readOnly ? 'תאריך נעול לצפייה בלבד' : 'סמן לסידור קווים בתאריך הנבחר'}
                 >
                     {selected && <span className="text-white text-[10px] font-black">✓</span>}
                 </button>
@@ -135,12 +140,13 @@ function PickupCard({
                 {/* History dots */}
                 <HistoryBadge completions={record.completions} />
 
-                {/* Done/not-done toggle for today */}
+                {/* Done/not-done toggle for active date */}
                 <div className="flex gap-1 shrink-0">
                     <button
-                        onClick={() => onToggleDone(true)}
-                        title="בוצע היום"
-                        className="text-[10px] px-1.5 py-0.5 rounded-lg border transition-all"
+                        onClick={() => !readOnly && onToggleDone(true)}
+                        disabled={readOnly}
+                        title="בוצע בתאריך הנבחר"
+                        className="text-[10px] px-1.5 py-0.5 rounded-lg border transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                         style={{
                             borderColor: todayDone === true ? '#10b981' : '#1e2d45',
                             background: todayDone === true ? '#10b98120' : 'transparent',
@@ -148,9 +154,10 @@ function PickupCard({
                         }}
                     >✓</button>
                     <button
-                        onClick={() => onToggleDone(false)}
-                        title="לא בוצע היום"
-                        className="text-[10px] px-1.5 py-0.5 rounded-lg border transition-all"
+                        onClick={() => !readOnly && onToggleDone(false)}
+                        disabled={readOnly}
+                        title="לא בוצע בתאריך הנבחר"
+                        className="text-[10px] px-1.5 py-0.5 rounded-lg border transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                         style={{
                             borderColor: todayDone === false ? '#ef4444' : '#1e2d45',
                             background: todayDone === false ? '#ef444420' : 'transparent',
@@ -474,7 +481,9 @@ function PickupForm({
 
 // ─── Main PickupsManager ──────────────────────────────────────────────────────
 
-export function PickupsManager({ onClose }: { onClose: () => void }) {
+export function PickupsManager({ onClose, readOnly = false }: { onClose: () => void; readOnly?: boolean }) {
+    const activeDateStr = todayStr()
+    const activeDateDisplay = formatDateHeDisplay(activeDateStr)
     const [records, setRecords] = useState<PickupRecord[]>([])
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
     const [editing, setEditing] = useState<PickupRecord | null>(null)
@@ -486,14 +495,14 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
     const reload = useCallback(async () => {
         const recs = await getAllPickupRecords()
         setRecords(recs)
-        setSelectedIds(await getSelectedPickupIds())
+        setSelectedIds(await getSelectedPickupIds(activeDateStr))
         const status: Record<string, boolean | null> = {}
         for (const r of recs) {
-            const c = getTodayCompletion(r)
+            const c = getTodayCompletion(r, activeDateStr)
             status[r.id] = c ? c.done : null
         }
         setTodayStatus(status)
-    }, [])
+    }, [activeDateStr])
 
     useEffect(() => { reload() }, [reload])
 
@@ -505,13 +514,16 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
 
     const handleDelete = async (id: string) => {
         await deletePickupRecord(id)
-        await setPickupSelected(id, false)
+        if (!readOnly) {
+            await setPickupSelected(id, false, activeDateStr)
+        }
         await reload()
     }
 
     const handleToggleSelected = async (id: string) => {
+        if (readOnly) return
         const next = !selectedIds.has(id)
-        await setPickupSelected(id, next)
+        await setPickupSelected(id, next, activeDateStr)
         setSelectedIds(prev => {
             const s = new Set(prev)
             if (next) s.add(id); else s.delete(id)
@@ -520,37 +532,31 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
     }
 
     const handleToggleDone = async (id: string, done: boolean) => {
+        if (readOnly) return
         // If same value already, toggle off (reset)
         const current = todayStatus[id]
         if (current === done) {
-            // remove today's mark
+            await unmarkPickupDone(id, activeDateStr)
             const rec = records.find(r => r.id === id)
             if (rec) {
-                const today = todayStr()
-                rec.completions = rec.completions.filter(c => c.date !== today)
-                // Actually to reset today in Supabase we could call markPickupDone explicitly if needed or delete
-                // But markPickupDone currently only upserts, we can leave the local update and wait for reload or manually handle
-                // to correctly remove from supabase, we should add logic to markPickupDone or just handle it. 
-                // For now, I'll let it just not mark as done.
+                const updatedCompletions = rec.completions.filter(c => c.date !== activeDateStr)
                 setTodayStatus(prev => ({ ...prev, [id]: null }))
-                setRecords(prev => prev.map(r => r.id === id ? { ...r, completions: rec.completions } : r))
+                setRecords(prev => prev.map(r => r.id === id ? { ...r, completions: updatedCompletions } : r))
             }
         } else {
-            await markPickupDone(id, done)
+            await markPickupDone(id, done, undefined, activeDateStr)
             setTodayStatus(prev => ({ ...prev, [id]: done }))
-            // Update local record completions
-            const today = todayStr()
             setRecords(prev => prev.map(r => {
                 if (r.id !== id) return r
-                const filtered = r.completions.filter(c => c.date !== today)
-                return { ...r, completions: [{ date: today, done }, ...filtered] }
+                const filtered = r.completions.filter(c => c.date !== activeDateStr)
+                return { ...r, completions: [{ date: activeDateStr, done }, ...filtered] }
             }))
         }
     }
 
     const handleUndoPickup = async (id: string, date: string) => {
         await unmarkPickupDone(id, date)
-        if (date === todayStr()) {
+        if (date === activeDateStr) {
             setTodayStatus(prev => ({ ...prev, [id]: null }))
         }
         await reload()
@@ -576,9 +582,10 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
     const selectedCount = pendingRecords.filter(r => selectedIds.has(r.id) && r.lat !== null).length
 
     const handleSelectAll = async () => {
+        if (readOnly) return
         const idsToSelect = filteredPending.map(r => r.id)
         if (idsToSelect.length === 0) return
-        await setMultiplePickupsSelected(idsToSelect, true)
+        await setMultiplePickupsSelected(idsToSelect, true, activeDateStr)
         setSelectedIds(prev => {
             const s = new Set(prev)
             for (const id of idsToSelect) {
@@ -589,9 +596,10 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
     }
 
     const handleSelectNone = async () => {
+        if (readOnly) return
         const idsToDeselect = filteredPending.map(r => r.id)
         if (idsToDeselect.length === 0) return
-        await setMultiplePickupsSelected(idsToDeselect, false)
+        await setMultiplePickupsSelected(idsToDeselect, false, activeDateStr)
         setSelectedIds(prev => {
             const s = new Set(prev)
             for (const id of idsToDeselect) {
@@ -620,10 +628,12 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
                     <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0"
                         style={{ background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)' }}>↩</div>
                     <div className="flex-1">
-                        <div className="font-black text-sm text-slate-200">מאגר איסופים</div>
+                        <div className="font-black text-sm text-slate-200">
+                            מאגר איסופים · <span className="text-purple-300 font-bold">{activeDateDisplay}</span>
+                        </div>
                         <div className="text-[11px] text-slate-500">
                             {pendingRecords.length} ממתינים · {historyItems.length} בהיסטוריה
-                            {doneToday > 0 && ` · ✓ ${doneToday} סומנו כבוצעו היום`}
+                            {doneToday > 0 && ` · ✓ ${doneToday} סומנו כבוצעו ב-${activeDateDisplay}`}
                         </div>
                     </div>
                     <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-xl leading-none">✕</button>
@@ -649,11 +659,12 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
                     <>
                         {/* Legend */}
                         <div className="px-4 py-2 border-b border-border bg-purple-500/5 shrink-0">
-                            <div className="flex gap-4 text-[10px] text-slate-600" dir="rtl">
-                                <span>☑ = לסידור קווים היום</span>
+                            <div className="flex gap-4 text-[10px] text-slate-600 flex-wrap" dir="rtl">
+                                <span>☑ = לסידור קווים ({activeDateDisplay})</span>
                                 <span className="text-green-500">✓ = בוצע</span>
                                 <span className="text-red-500">✗ = לא בוצע</span>
                                 <span>● = היסטוריה אחרונה</span>
+                                {readOnly && <span className="text-slate-300 font-bold">🔒 תאריך עבר נעול לבחירה</span>}
                             </div>
                         </div>
 
@@ -668,7 +679,7 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
                         </div>
 
                         {/* Select All / None controls */}
-                        {pendingRecords.length > 0 && (
+                        {pendingRecords.length > 0 && !readOnly && (
                             <div className="px-3 pt-2 pb-1 flex justify-between gap-2 shrink-0" dir="rtl">
                                 <div className="flex gap-2">
                                     <button
@@ -716,6 +727,7 @@ export function PickupsManager({ onClose }: { onClose: () => void }) {
                                     onToggleDone={done => handleToggleDone(r.id, done)}
                                     onEdit={() => setEditing({ ...r })}
                                     onDelete={() => handleDelete(r.id)}
+                                    readOnly={readOnly}
                                 />
                             ))}
                         </div>

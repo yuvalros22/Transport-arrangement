@@ -1,7 +1,6 @@
 import { supabase } from './supabase'
+import { getActiveSessionDate } from './sessionStore'
 import type { PickupRecord, PickupCompletion } from '@/types'
-
-function todayStr(): string { return new Date().toISOString().slice(0, 10) }
 
 export async function getAllPickupRecords(): Promise<PickupRecord[]> {
     const { data: pData, error: pErr } = await supabase.from('pickups').select('*')
@@ -100,8 +99,8 @@ export function newPickupRecordId(): string {
     return `pr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
 }
 
-export async function markPickupDone(id: string, done: boolean, note?: string) {
-    const today = todayStr()
+export async function markPickupDone(id: string, done: boolean, note?: string, targetDate?: string) {
+    const today = targetDate || getActiveSessionDate()
     
     // Check if exists
     const { data: existing } = await supabase.from('pickup_completions')
@@ -119,8 +118,8 @@ export async function markPickupDone(id: string, done: boolean, note?: string) {
     }
 }
 
-export function getTodayCompletion(record: PickupRecord): PickupCompletion | null {
-    const today = todayStr()
+export function getTodayCompletion(record: PickupRecord, targetDate?: string): PickupCompletion | null {
+    const today = targetDate || getActiveSessionDate()
     return record.completions.find(c => c.date === today) ?? null
 }
 
